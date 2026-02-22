@@ -1,0 +1,192 @@
+server:
+  port: 8080
+  compression:
+    enabled: true
+    mime-types: text/plain,text/html,text/xml,text/css,application/json,application/xml,application/xhtml+xml,application/javascript
+    min-response-size: 1024
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 10s
+      routes:
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/user-service
+                statusCodes: BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 10
+                redis-rate-limiter.burstCapacity: 20
+                redis-rate-limiter.requestedTokens: 1
+            - name: Retry
+              args:
+                retries: 3
+                statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE, GATEWAY_TIMEOUT
+                methods: GET,POST,PUT,DELETE
+                backoff:
+                  firstBackoff: 10ms
+                  maxBackoff: 100ms
+                  factor: 2
+                  basedOnPreviousValue: false
+        
+        - id: content-service
+          uri: lb://content-service
+          predicates:
+            - Path=/api/content/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: contentServiceCB
+                fallbackUri: forward:/fallback/content-service
+            - StripPrefix=1
+        
+        - id: streaming-service
+          uri: lb://streaming-service
+          predicates:
+            - Path=/api/stream/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: streamingServiceCB
+                fallbackUri: forward:/fallback/streaming-service
+            - RewritePath=/api/stream/(?<segment>.*), /$\{segment}
+        
+        - id: recommendation-service
+          uri: lb://recommendation-service
+          predicates:
+            - Path=/api/recommendations/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: recommendationServiceCB
+                fallbackUri: forward:/fallback/recommendation-service
+            - StripPrefix=1
+        
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/payments/**
+          filters:
+            - name: AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: paymentServiceCB
+                fallbackUri: forward:/fallback/payment-service
+            - StripPrefix=1
+
+        # Fallback route for circuit breakers
+        - id: fallback-route
+          uri: forward:/fallback
+          predicates:
+            - Path=/fallback/**
+
+  # Redis configuration for rate limiting and circuit breaker
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: 6379
+    timeout: 5000
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1
+        max-idle: 8
+        min-idle: 0
+
+  # Circuit breaker configuration
+  cloud.circuit.breaker.resilience4j:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+
+  # CORS configuration
+  cloud.gateway.globalcors:
+    cors-configurations:
+      '[/**]':
+        allowedOrigins: "*"
+        allowedMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        allowedHeaders: "*"
+        allowCredentials: true
+        maxAge: 3600
+
+  # Actuator endpoints for monitoring
+  management:
+    endpoint:
+      health:
+        show-details: always
+        show-components: always
+      metrics:
+        enabled: true
+    endpoints:
+      web:
+        exposure:
+          include: health,info,metrics,prometheus
+    health:
+      redis:
+        enabled: true
+    metrics:
+      distribution:
+        percentiles-histogram:
+          http.server.requests: true
+      web:
+        server:
+          request:
+            autotime:
+              enabled: true
+              percentiles: 0.5,0.95,0.99
+      repositories:
+        enabled: true
+
+  # Circuit breaker configuration moved under spring.cloud
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    reactor.netty: DEBUG
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true

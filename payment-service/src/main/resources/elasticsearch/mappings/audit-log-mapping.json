@@ -1,0 +1,40 @@
+{
+  "properties": {
+    "paymentIntentId": {
+      "type": "keyword"
+    },
+    "eventType": {
+      "type": "keyword"
+    },
+    "oldValues": {
+      "type": "flattened"
+    },
+    "newValues": {
+      "type": "flattened"
+    },
+    "changedBy": {
+      "type": "keyword"
+    },
+    "ipAddress": {
+      "type": "ip"
+    },
+    "timestamp": {
+      "type": "date",
+      "format": "strict_date_hour_minute_second_millis"
+    },
+    "message": {
+      "type": "text",
+      "analyzer": "audit_analyzer",
+      "fields": {
+        "keyword": {
+          "type": "keyword",
+          "ignore_above": 256
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "enabled": true
+    }
+  }
+}
