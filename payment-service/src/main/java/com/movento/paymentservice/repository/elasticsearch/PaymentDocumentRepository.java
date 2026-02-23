@@ -12,6 +12,8 @@ public interface PaymentDocumentRepository extends ElasticsearchRepository<Payme
     
     List<PaymentDocument> findByUserId(String userId);
     
+    List<PaymentDocument> findByStatus(String status);
+    
     @Query("""
         {
             "bool": {
