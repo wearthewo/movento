@@ -20,11 +20,11 @@ Movento follows a **microservices architecture** pattern with service discovery,
         │  │ (Port 8081) │  │Service      │  │Service      │    │
         │  │             │  │ (Port 8083) │  │ (Port 8082) │    │
         │  └─────────────┘  └─────────────┘  └─────────────┘    │
-        │  ┌─────────────┐                                      │
-        │  │Recommendation│                                     │
-        │  │Service      │                                     │
-        │  │ (Port 8084) │                                     │
-        │  └─────────────┘                                      │
+        │  ┌─────────────┐  ┌─────────────┐                       │
+        │  │Content      │  │Recommendation│                      │
+        │  │Service      │  │Service      │                      │
+        │  │ (Port 8085) │  │ (Port 8084) │                      │
+        │  └─────────────┘  └─────────────┘                       │
         └─────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -71,6 +71,13 @@ Movento follows a **microservices architecture** pattern with service discovery,
 - **Purpose**: Payment processing and subscription management
 - **Features**: Payment gateway integration, subscription handling
 - **Database**: PostgreSQL (movento_payment_db)
+
+### Content Service (`content-service`)
+- **Port**: 8085
+- **Purpose**: Content management and catalog operations
+- **Features**: Movie/TV show metadata, content CRUD operations, genre management
+- **Database**: PostgreSQL (movento_content_db)
+- **Search**: Elasticsearch for content indexing
 
 ### Recommendation Service (`recommendation-service`)
 - **Port**: 8084
@@ -179,6 +186,7 @@ STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
 ### Database Schema
 Each microservice has its own database schema to ensure loose coupling:
 - `movento_user_db` - User management
+- `movento_content_db` - Content catalog and metadata
 - `movento_streaming_db` - Content and media
 - `movento_payment_db` - Payments and subscriptions
 - `movento_recommendation_db` - Recommendations and analytics
@@ -188,6 +196,7 @@ Each microservice has its own database schema to ensure loose coupling:
 ### Gateway Endpoints
 - **Authentication**: `/api/auth/*` - Login, registration, token refresh
 - **Users**: `/api/users/*` - User profile management
+- **Content**: `/api/content/*` - Content catalog and metadata
 - **Streaming**: `/api/streaming/*` - Content streaming
 - **Payments**: `/api/payments/*` - Payment processing
 - **Recommendations**: `/api/recommendations/*` - Content recommendations
