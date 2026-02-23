@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Copy parent POM and service files
 COPY ../pom.xml ../
-COPY pom.xml .
-COPY src ./src
+COPY pom.xml ./user-service/pom.xml
+COPY src ./user-service/src
 
 # Build service with proper parent resolution
 RUN mvn package -DskipTests

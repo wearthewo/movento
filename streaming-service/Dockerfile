@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Copy parent POM and service files
 COPY ../pom.xml ../
-COPY pom.xml .
-COPY src ./src
+COPY pom.xml ./streaming-service/pom.xml
+COPY src ./streaming-service/src
 
 # Build the service
 RUN mvn package -DskipTests

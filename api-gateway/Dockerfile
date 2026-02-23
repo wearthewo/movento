@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Copy parent POM and service files
 COPY ../pom.xml ../
-COPY pom.xml .
-COPY src ./src
+COPY pom.xml ./api-gateway/pom.xml
+COPY src ./api-gateway/src
 
 # Build the service
 RUN mvn package -DskipTests

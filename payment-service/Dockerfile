@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Copy parent POM to correct location
 COPY ../pom.xml ../
-COPY pom.xml .
-COPY src ./src
+COPY pom.xml ./payment-service/pom.xml
+COPY src ./payment-service/src
 
 # Build from the parent directory using reactor mode
 RUN mvn package -DskipTests
