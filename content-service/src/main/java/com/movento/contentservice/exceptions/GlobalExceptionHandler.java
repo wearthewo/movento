@@ -35,7 +35,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex, HttpHeaders headers, 
             HttpStatus status, WebRequest request) {
@@ -47,11 +46,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             errors.put(fieldName, errorMessage);
         });
 
-        return new ResponseEntity<>(
-            ApiResponse.error("Validation failed", HttpStatus.BAD_REQUEST, 
-                           request.getDescription(false))
-                .setData(errors),
-            HttpStatus.BAD_REQUEST
-        );
+        ApiResponse<Map<String, String>> response = ApiResponse.error("Validation failed", HttpStatus.BAD_REQUEST, 
+                           request.getDescription(false));
+        response.setData(errors);
+
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
     }
 }
