@@ -8,6 +8,7 @@ COPY pom.xml ./user-service/pom.xml
 COPY src ./user-service/src
 
 # Build service with proper parent resolution
+WORKDIR /app/user-service
 RUN mvn package -DskipTests
 
 # Run stage
@@ -15,7 +16,7 @@ FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 # Copy JAR file from build stage
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/user-service/target/*.jar app.jar
 
 # Expose port app runs on
 EXPOSE 8081
