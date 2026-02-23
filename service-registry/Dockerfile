@@ -1,28 +1,21 @@
-# Build stage
+# -------- BUILD STAGE --------
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM to correct location
-COPY ../pom.xml ../
-COPY pom.xml ./service-registry/pom.xml
-COPY src ./service-registry/src
+# Copy entire project
+COPY . .
 
-# Build from the parent directory using reactor mode
-WORKDIR /app/service-registry
-RUN mvn package -DskipTests
+# Build only api-gateway module and required parents
+RUN mvn clean package -pl service-registry -am -DskipTests
 
-# Run stage
+# -------- RUN STAGE --------
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
-# Copy the JAR file from the build stage
 COPY --from=build /app/service-registry/target/*.jar app.jar
 
-# Expose the port the app runs on
-EXPOSE 8761
+EXPOSE 8080
 
-# Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

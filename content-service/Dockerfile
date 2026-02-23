@@ -1,28 +1,21 @@
-# Build stage
+# -------- BUILD STAGE --------
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM and service files
-COPY ../pom.xml ../
-COPY pom.xml ./content-service/pom.xml
-COPY src ./content-service/src
+# Copy entire project
+COPY . .
 
-# Build the service
-WORKDIR /app/content-service
-RUN mvn package -DskipTests
+# Build only api-gateway module and required parents
+RUN mvn clean package -pl content-service -am -DskipTests
 
-# Run stage
+# -------- RUN STAGE --------
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
-# Copy the JAR file from the build stage
 COPY --from=build /app/content-service/target/*.jar app.jar
 
-# Expose the port the app runs on
-EXPOSE 8082
+EXPOSE 8080
 
-# Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -139,6 +139,20 @@ jobs:
           cd service-registry
           mvn clean verify
 
+      - name: Test Content Service
+        run: |
+          cd content-service
+          mvn clean verify
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: testdb
+          DB_USER: test
+          DB_PASSWORD: test
+          REDIS_HOST: localhost
+          RABBITMQ_HOST: localhost
+          ELASTICSEARCH_HOST: localhost
+
   build-and-push:
     name: Build and Push Docker Images
     needs: test-services
@@ -161,7 +175,8 @@ jobs:
       - name: Build and Push User Service
         uses: docker/build-push-action@v4
         with:
-          context: ./user-service
+          context: .
+          file: ./user-service/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-user-service:latest
@@ -170,7 +185,8 @@ jobs:
       - name: Build and Push Payment Service
         uses: docker/build-push-action@v4
         with:
-          context: ./payment-service
+          context: .
+          file: ./payment-service/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-payment-service:latest
@@ -179,7 +195,8 @@ jobs:
       - name: Build and Push Streaming Service
         uses: docker/build-push-action@v4
         with:
-          context: ./streaming-service
+          context: .
+          file: ./streaming-service/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-streaming-service:latest
@@ -188,7 +205,8 @@ jobs:
       - name: Build and Push Recommendation Service
         uses: docker/build-push-action@v4
         with:
-          context: ./recommendation-service
+          context: .
+          file: ./recommendation-service/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-recommendation-service:latest
@@ -197,7 +215,8 @@ jobs:
       - name: Build and Push API Gateway
         uses: docker/build-push-action@v4
         with:
-          context: ./api-gateway
+          context: .
+          file: ./api-gateway/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-api-gateway:latest
@@ -206,10 +225,21 @@ jobs:
       - name: Build and Push Service Registry
         uses: docker/build-push-action@v4
         with:
-          context: ./service-registry
+          context: .
+          file: ./service-registry/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-service-registry:latest
             ${{ secrets.DOCKER_HUB_USERNAME }}/movento-service-registry:${{ github.sha }}
+
+      - name: Build and Push Content Service
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./content-service/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/movento-content-service:latest
+            ${{ secrets.DOCKER_HUB_USERNAME }}/movento-content-service:${{ github.sha }}
 
   

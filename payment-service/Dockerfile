@@ -1,28 +1,21 @@
-# Build stage
+# -------- BUILD STAGE --------
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM to correct location
-COPY ../pom.xml ../
-COPY pom.xml ./payment-service/pom.xml
-COPY src ./payment-service/src
+# Copy entire project
+COPY . .
 
-# Build from the parent directory using reactor mode
-WORKDIR /app/payment-service
-RUN mvn package -DskipTests
+# Build only api-gateway module and required parents
+RUN mvn clean package -pl payment-service -am -DskipTests
 
-# Run stage
+# -------- RUN STAGE --------
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
-# Copy the JAR file from the build stage
 COPY --from=build /app/payment-service/target/*.jar app.jar
 
-# Expose the port the app runs on
-EXPOSE 8083
+EXPOSE 8080
 
-# Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]
