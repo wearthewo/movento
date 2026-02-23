@@ -1,5 +1,5 @@
 # Build stage
-FROM maven:3.9.4-openjdk-17-slim AS build
+FROM maven:3.9-openjdk-17 AS build
 WORKDIR /app
 
 # Copy only the POM file first to leverage Docker cache
