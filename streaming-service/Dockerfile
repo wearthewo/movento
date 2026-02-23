@@ -2,12 +2,13 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM and service files
-COPY ../pom.xml ../
-COPY pom.xml .
-COPY src ./src
+# Copy parent POM to correct location
+COPY ../pom.xml ./pom.xml
+COPY pom.xml ./streaming-service/pom.xml
+COPY src ./streaming-service/src
 
-# Build the service directly
+# Build from the root directory
+WORKDIR /app/streaming-service
 RUN mvn package -DskipTests
 
 # Run stage
@@ -15,7 +16,7 @@ FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 # Copy the JAR file from the build stage
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/streaming-service/target/*.jar app.jar
 
 # Expose the port the app runs on
 EXPOSE 8083
