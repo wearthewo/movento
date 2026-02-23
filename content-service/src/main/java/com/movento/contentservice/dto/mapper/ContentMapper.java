@@ -1,6 +1,8 @@
 package com.movento.contentservice.dto.mapper;
 
 import com.movento.contentservice.dto.ContentDto;
+import com.movento.contentservice.dto.MovieDto;
+import com.movento.contentservice.dto.TvShowDto;
 import com.movento.contentservice.model.Content;
 import com.movento.contentservice.model.ContentRating;
 import org.mapstruct.Mapper;
@@ -13,7 +15,20 @@ public interface ContentMapper {
     
     @Mapping(target = "genreIds", expression = "java(content.getGenres().stream().map(genre -> genre.getId()).collect(java.util.stream.Collectors.toList()))")
     @Mapping(target = "userRating", expression = "java(getUserRating(content, userId))")
-    ContentDto toDto(Content content, Long userId);
+    MovieDto toMovieDto(com.movento.contentservice.model.Movie content, Long userId);
+    
+    @Mapping(target = "genreIds", expression = "java(content.getGenres().stream().map(genre -> genre.getId()).collect(java.util.stream.Collectors.toList()))")
+    @Mapping(target = "userRating", expression = "java(getUserRating(content, userId))")
+    TvShowDto toTvShowDto(com.movento.contentservice.model.TvShow content, Long userId);
+    
+    default ContentDto toDto(Content content, Long userId) {
+        if (content instanceof com.movento.contentservice.model.Movie movie) {
+            return toMovieDto(movie, userId);
+        } else if (content instanceof com.movento.contentservice.model.TvShow tvShow) {
+            return toTvShowDto(tvShow, userId);
+        }
+        throw new IllegalArgumentException("Unknown content type: " + content.getClass());
+    }
     
     default Integer getUserRating(Content content, Long userId) {
         if (userId == null) return null;
@@ -27,13 +42,4 @@ public interface ContentMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "genres", ignore = true) // Will be handled in service
     Content toEntity(ContentDto dto);
-    
-    default ContentDto createDtoInstance(Content content) {
-        if (content instanceof com.movento.contentservice.model.Movie) {
-            return new com.movento.contentservice.dto.MovieDto();
-        } else if (content instanceof com.movento.contentservice.model.TvShow) {
-            return new com.movento.contentservice.dto.TvShowDto();
-        }
-        throw new IllegalArgumentException("Unknown content type: " + content.getClass());
-    }
 }
