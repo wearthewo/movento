@@ -7,9 +7,8 @@ COPY ../pom.xml ./pom.xml
 COPY pom.xml ./payment-service/pom.xml
 COPY src ./payment-service/src
 
-# Build from the root directory
-WORKDIR /app/payment-service
-RUN mvn package -DskipTests
+# Build from the parent directory using reactor mode
+RUN mvn package -DskipTests -pl payment-service -am
 
 # Run stage
 FROM eclipse-temurin:17-jre

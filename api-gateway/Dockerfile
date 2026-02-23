@@ -7,9 +7,8 @@ COPY ../pom.xml ./pom.xml
 COPY pom.xml ./api-gateway/pom.xml
 COPY src ./api-gateway/src
 
-# Build from the root directory
-WORKDIR /app/api-gateway
-RUN mvn package -DskipTests
+# Build from the parent directory using reactor mode
+RUN mvn package -DskipTests -pl api-gateway -am
 
 # Run stage
 FROM eclipse-temurin:17-jre

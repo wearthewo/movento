@@ -7,9 +7,8 @@ COPY ../pom.xml ./pom.xml
 COPY pom.xml ./service-registry/pom.xml
 COPY src ./service-registry/src
 
-# Build from the root directory
-WORKDIR /app/service-registry
-RUN mvn package -DskipTests
+# Build from the parent directory using reactor mode
+RUN mvn package -DskipTests -pl service-registry -am
 
 # Run stage
 FROM eclipse-temurin:17-jre

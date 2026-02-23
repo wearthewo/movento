@@ -7,9 +7,8 @@ COPY ../pom.xml ./pom.xml
 COPY pom.xml ./streaming-service/pom.xml
 COPY src ./streaming-service/src
 
-# Build from the root directory
-WORKDIR /app/streaming-service
-RUN mvn package -DskipTests
+# Build from the parent directory using reactor mode
+RUN mvn package -DskipTests -pl streaming-service -am
 
 # Run stage
 FROM eclipse-temurin:17-jre
