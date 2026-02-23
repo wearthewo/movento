@@ -2,26 +2,26 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM to correct location
+# Copy parent POM and service files
 COPY ../pom.xml ../
 COPY pom.xml .
 COPY src ./src
 
-# Build from the parent directory using reactor mode
+# Build service with proper parent resolution
 RUN mvn package -DskipTests
 
 # Run stage
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
-# Copy the JAR file from the build stage
+# Copy JAR file from build stage
 COPY --from=build /app/target/*.jar app.jar
 
-# Expose the port the app runs on
+# Expose port app runs on
 EXPOSE 8081
 
 # Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
 
-# Run the application
+# Run application
 ENTRYPOINT ["java", "-jar", "app.jar"]
