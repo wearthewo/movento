@@ -2,12 +2,12 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy parent POM to correct location
+# Copy parent POM and service files
 COPY ../pom.xml ../
 COPY pom.xml .
 COPY src ./src
 
-# Build from the parent directory using reactor mode
+# Build the service
 RUN mvn package -DskipTests
 
 # Run stage
@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
 
 # Expose the port the app runs on
-EXPOSE 8083
+EXPOSE 8082
 
 # Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
