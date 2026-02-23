@@ -17,12 +17,15 @@ public class ApiResponse<T> {
     private String message;
     private T data;
     private String path;
+    private String error;
+    private boolean success;
 
     public static <T> ApiResponse<T> success(T data) {
         ApiResponse<T> response = new ApiResponse<>();
         response.status = HttpStatus.OK.value();
         response.message = "Success";
         response.data = data;
+        response.success = true;
         return response;
     }
 
@@ -31,6 +34,7 @@ public class ApiResponse<T> {
         response.status = HttpStatus.CREATED.value();
         response.message = "Created successfully";
         response.data = data;
+        response.success = true;
         return response;
     }
 
@@ -39,6 +43,7 @@ public class ApiResponse<T> {
         response.status = status.value();
         response.message = message;
         response.path = path;
+        response.success = false;
         return response;
     }
 
