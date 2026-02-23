@@ -2,7 +2,7 @@
 
 A comprehensive microservices-based streaming platform built with Spring Boot, featuring user management, content streaming, recommendations, and payment processing.
 
-## 🏗️ Architecture Overview
+##  Architecture Overview
 
 Movento follows a **microservices architecture** pattern with service discovery, API gateway, and containerized deployment.
 
