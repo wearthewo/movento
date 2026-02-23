@@ -1,5 +1,7 @@
 package com.movento.contentservice.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.movento.contentservice.dto.GenreDto;
 import lombok.Getter;
 import lombok.Setter;
@@ -13,6 +15,11 @@ import java.util.Set;
 
 @Getter
 @Setter
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = MovieRequest.class, name = "MOVIE"),
+    @JsonSubTypes.Type(value = TvShowRequest.class, name = "TV_SHOW")
+})
 public abstract class ContentRequest {
     
     @NotBlank(message = "Title is required")

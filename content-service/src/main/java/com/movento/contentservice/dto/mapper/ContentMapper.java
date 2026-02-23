@@ -27,4 +27,13 @@ public interface ContentMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "genres", ignore = true) // Will be handled in service
     Content toEntity(ContentDto dto);
+    
+    default ContentDto createDtoInstance(Content content) {
+        if (content instanceof com.movento.contentservice.model.Movie) {
+            return new com.movento.contentservice.dto.MovieDto();
+        } else if (content instanceof com.movento.contentservice.model.TvShow) {
+            return new com.movento.contentservice.dto.TvShowDto();
+        }
+        throw new IllegalArgumentException("Unknown content type: " + content.getClass());
+    }
 }

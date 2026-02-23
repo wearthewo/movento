@@ -16,7 +16,7 @@ public interface ContentRatingMapper {
     
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "content", ignore = true)
-    @Mapping(target = "user", ignore = true)
+    @Mapping(target = "userId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     ContentRating toEntity(ContentRatingRequest request);
@@ -25,7 +25,7 @@ public interface ContentRatingMapper {
     
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "content", ignore = true)
-    @Mapping(target = "user", ignore = true)
+    @Mapping(target = "userId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     void updateEntityFromRequest(ContentRatingRequest request, @MappingTarget ContentRating entity);

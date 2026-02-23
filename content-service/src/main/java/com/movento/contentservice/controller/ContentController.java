@@ -2,6 +2,8 @@ package com.movento.contentservice.controller;
 
 import com.movento.contentservice.dto.ContentDto;
 import com.movento.contentservice.dto.request.ContentRequest;
+import com.movento.contentservice.dto.request.MovieRequest;
+import com.movento.contentservice.dto.request.TvShowRequest;
 import com.movento.contentservice.dto.response.ApiResponse;
 import com.movento.contentservice.model.Content;
 import com.movento.contentservice.service.ContentService;
@@ -58,19 +60,19 @@ public class ContentController {
     public ResponseEntity<ApiResponse<ContentDto>> createContent(
             @Valid @RequestBody ContentRequest request) {
         
-        // Convert DTO to entity (you'll need to implement this mapping)
-        Content content = new Content();
-        // Set properties from request to content
-        content.setTitle(request.getTitle());
-        content.setDescription(request.getDescription());
-        // Set other properties...
-        
-        // Get genre IDs from request (assuming ContentRequest has getGenreIds())
+        Content createdContent;
         List<Long> genreIds = request.getGenres().stream()
                 .map(genreDto -> genreDto.getId())
                 .toList();
         
-        Content createdContent = contentService.createContent(content, genreIds);
+        if (request instanceof MovieRequest movieRequest) {
+            createdContent = contentService.createMovie(movieRequest, genreIds);
+        } else if (request instanceof TvShowRequest tvShowRequest) {
+            createdContent = contentService.createTvShow(tvShowRequest, genreIds);
+        } else {
+            throw new IllegalArgumentException("Unsupported content type");
+        }
+        
         ContentDto contentDto = contentService.getContentDetails(createdContent.getId(), null);
         
         URI location = ServletUriComponentsBuilder
@@ -88,19 +90,19 @@ public class ContentController {
             @PathVariable Long id,
             @Valid @RequestBody ContentRequest request) {
         
-        // Convert DTO to entity (you'll need to implement this mapping)
-        Content content = new Content();
-        // Set properties from request to content
-        content.setTitle(request.getTitle());
-        content.setDescription(request.getDescription());
-        // Set other properties...
-        
-        // Get genre IDs from request (assuming ContentRequest has getGenreIds())
+        Content updatedContent;
         List<Long> genreIds = request.getGenres().stream()
                 .map(genreDto -> genreDto.getId())
                 .toList();
         
-        Content updatedContent = contentService.updateContent(id, content, genreIds);
+        if (request instanceof MovieRequest movieRequest) {
+            updatedContent = contentService.updateMovie(id, movieRequest, genreIds);
+        } else if (request instanceof TvShowRequest tvShowRequest) {
+            updatedContent = contentService.updateTvShow(id, tvShowRequest, genreIds);
+        } else {
+            throw new IllegalArgumentException("Unsupported content type");
+        }
+        
         ContentDto contentDto = contentService.getContentDetails(updatedContent.getId(), null);
         return ResponseEntity.ok(ApiResponse.success(contentDto));
     }

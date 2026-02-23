@@ -2,9 +2,13 @@ package com.movento.contentservice.service;
 
 import com.movento.contentservice.dto.ContentDto;
 import com.movento.contentservice.dto.mapper.ContentMapper;
+import com.movento.contentservice.dto.request.MovieRequest;
+import com.movento.contentservice.dto.request.TvShowRequest;
 import com.movento.contentservice.exceptions.ResourceNotFoundException;
 import com.movento.contentservice.model.Content;
 import com.movento.contentservice.model.Genre;
+import com.movento.contentservice.model.Movie;
+import com.movento.contentservice.model.TvShow;
 import com.movento.contentservice.repository.ContentRepository;
 import com.movento.contentservice.repository.GenreRepository;
 import lombok.RequiredArgsConstructor;
@@ -93,5 +97,95 @@ public class ContentServiceImpl extends BaseServiceImpl<Content, Long> implement
             
             return contentRepository.save(existingContent);
         }).orElseThrow(() -> new ResourceNotFoundException("Content not found with id: " + id));
+    }
+
+    @Override
+    @Transactional
+    public Content createMovie(MovieRequest movieRequest, List<Long> genreIds) {
+        Movie movie = new Movie();
+        mapContentRequestToContent(movieRequest, movie);
+        movie.setDirector(movieRequest.getDirector());
+        movie.setImdbRating(movieRequest.getImdbRating());
+        movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue() != null ? 
+            movieRequest.getBoxOfficeRevenue().doubleValue() : null);
+        
+        if (genreIds != null && !genreIds.isEmpty()) {
+            Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));
+            movie.setGenres(genres);
+        }
+        
+        return contentRepository.save(movie);
+    }
+
+    @Override
+    @Transactional
+    public Content updateMovie(Long id, MovieRequest movieRequest, List<Long> genreIds) {
+        return contentRepository.findById(id).map(existingContent -> {
+            if (!(existingContent instanceof Movie movie)) {
+                throw new IllegalArgumentException("Content with id " + id + " is not a movie");
+            }
+            
+            mapContentRequestToContent(movieRequest, movie);
+            movie.setDirector(movieRequest.getDirector());
+            movie.setImdbRating(movieRequest.getImdbRating());
+            movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue() != null ? 
+                movieRequest.getBoxOfficeRevenue().doubleValue() : null);
+            
+            if (genreIds != null) {
+                Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));
+                movie.setGenres(genres);
+            }
+            
+            return contentRepository.save(movie);
+        }).orElseThrow(() -> new ResourceNotFoundException("Content not found with id: " + id));
+    }
+
+    @Override
+    @Transactional
+    public Content createTvShow(TvShowRequest tvShowRequest, List<Long> genreIds) {
+        TvShow tvShow = new TvShow();
+        mapContentRequestToContent(tvShowRequest, tvShow);
+        tvShow.setNumberOfSeasons(tvShowRequest.getNumberOfSeasons());
+        tvShow.setNumberOfEpisodes(tvShowRequest.getNumberOfEpisodes());
+        tvShow.setIsOngoing(tvShowRequest.getIsOngoing());
+        
+        if (genreIds != null && !genreIds.isEmpty()) {
+            Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));
+            tvShow.setGenres(genres);
+        }
+        
+        return contentRepository.save(tvShow);
+    }
+
+    @Override
+    @Transactional
+    public Content updateTvShow(Long id, TvShowRequest tvShowRequest, List<Long> genreIds) {
+        return contentRepository.findById(id).map(existingContent -> {
+            if (!(existingContent instanceof TvShow tvShow)) {
+                throw new IllegalArgumentException("Content with id " + id + " is not a TV show");
+            }
+            
+            mapContentRequestToContent(tvShowRequest, tvShow);
+            tvShow.setNumberOfSeasons(tvShowRequest.getNumberOfSeasons());
+            tvShow.setNumberOfEpisodes(tvShowRequest.getNumberOfEpisodes());
+            tvShow.setIsOngoing(tvShowRequest.getIsOngoing());
+            
+            if (genreIds != null) {
+                Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));
+                tvShow.setGenres(genres);
+            }
+            
+            return contentRepository.save(tvShow);
+        }).orElseThrow(() -> new ResourceNotFoundException("Content not found with id: " + id));
+    }
+
+    private void mapContentRequestToContent(com.movento.contentservice.dto.request.ContentRequest request, Content content) {
+        content.setTitle(request.getTitle());
+        content.setDescription(request.getDescription());
+        content.setReleaseYear(request.getReleaseYear());
+        content.setDurationMinutes(request.getDurationMinutes());
+        content.setThumbnailUrl(request.getThumbnailUrl());
+        content.setBackdropUrl(request.getBackdropUrl());
+        content.setContentRating(request.getContentRating());
     }
 }

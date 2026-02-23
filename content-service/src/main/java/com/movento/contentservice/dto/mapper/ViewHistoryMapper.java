@@ -15,7 +15,7 @@ public interface ViewHistoryMapper {
     
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "content", ignore = true)
-    @Mapping(target = "user", ignore = true)
+    @Mapping(target = "userId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "viewedAt", expression = "java(java.time.LocalDateTime.now())")
@@ -25,7 +25,7 @@ public interface ViewHistoryMapper {
     
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "content", ignore = true)
-    @Mapping(target = "user", ignore = true)
+    @Mapping(target = "userId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "viewedAt", expression = "java(java.time.LocalDateTime.now())")
