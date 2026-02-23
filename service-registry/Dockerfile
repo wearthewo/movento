@@ -1,5 +1,5 @@
 # Build stage
-FROM maven:3.8.4-openjdk-17-slim AS build
+FROM maven:3.9.4-openjdk-17-slim AS build
 WORKDIR /app
 
 # Copy only the POM file first to leverage Docker cache
@@ -15,7 +15,7 @@ COPY src ./src
 RUN mvn package -DskipTests
 
 # Run stage
-FROM openjdk:17-jdk-slim
+FROM openjdk:17-jre-slim
 WORKDIR /app
 
 # Copy the JAR file from the build stage
