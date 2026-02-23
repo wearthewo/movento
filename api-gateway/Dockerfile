@@ -2,24 +2,18 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# Copy only the POM file first to leverage Docker cache
-COPY pom.xml .
+# Copy the entire project structure first
+COPY . .
 
-# Download all dependencies
-RUN mvn dependency:go-offline -B
-
-# Copy the rest of the source code
-COPY src ./src
-
-# Build the application
-RUN mvn package -DskipTests
+# Build the specific service
+RUN mvn package -DskipTests -pl api-gateway -am
 
 # Run stage
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 # Copy the JAR file from the build stage
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/api-gateway/target/*.jar app.jar
 
 # Expose the port the app runs on
 EXPOSE 8080
