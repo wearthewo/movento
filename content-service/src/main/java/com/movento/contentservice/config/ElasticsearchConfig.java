@@ -2,6 +2,7 @@ package com.movento.contentservice.config;
 
 import org.elasticsearch.client.RestHighLevelClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.elasticsearch.client.ClientConfiguration;
@@ -12,6 +13,7 @@ import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
 import org.springframework.data.elasticsearch.repository.config.EnableElasticsearchRepositories;
 
 @Configuration
+@ConditionalOnProperty(name = "app.elasticsearch.enabled", havingValue = "true")
 @EnableElasticsearchRepositories(basePackages = "com.movento.contentservice.repository.elasticsearch")
 public class ElasticsearchConfig extends AbstractElasticsearchConfiguration {
 

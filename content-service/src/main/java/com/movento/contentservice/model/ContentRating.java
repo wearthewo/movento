@@ -2,7 +2,8 @@ package com.movento.contentservice.model;
 
 import lombok.Getter;
 import lombok.Setter;
-import javax.persistence.*;
+import jakarta.persistence.*;
+import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -17,8 +18,8 @@ public class ContentRating extends BaseEntity {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(nullable = false)
-    private Integer rating;
+    @Column(nullable = false, precision = 2, scale = 1)
+    private BigDecimal rating;
 
     @Column(length = 1000)
     private String review;

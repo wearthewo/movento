@@ -17,6 +17,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -33,8 +34,8 @@ public class PaymentService {
 
     private final StripeService stripeService;
     private final PaymentRepository paymentRepository;
-    private final PaymentSearchService paymentSearchService;
-    private final PaymentAuditService paymentAuditService;
+    private final ObjectProvider<PaymentSearchService> paymentSearchServiceProvider;
+    private final ObjectProvider<PaymentAuditService> paymentAuditServiceProvider;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
 
@@ -148,7 +149,7 @@ public class PaymentService {
                 .description("Payment for plan: " + payment.getPlanId())
                 .build();
             
-            paymentSearchService.indexPayment(paymentDoc);
+            paymentSearchServiceProvider.ifAvailable(service -> service.indexPayment(paymentDoc));
         } catch (Exception e) {
             log.error("Failed to index payment: {}", payment.getPaymentIntentId(), e);
         }
@@ -161,6 +162,11 @@ public class PaymentService {
                 objectMapper.convertValue(oldPayment, new TypeReference<>() {}) : 
                 Collections.emptyMap();
                 
+            PaymentAuditService paymentAuditService = paymentAuditServiceProvider.getIfAvailable();
+            if (paymentAuditService == null) {
+                log.debug("Elasticsearch audit logging is disabled");
+                return;
+            }
             paymentAuditService.logPaymentEvent(
                 payment.getPaymentIntentId(),
                 eventType,

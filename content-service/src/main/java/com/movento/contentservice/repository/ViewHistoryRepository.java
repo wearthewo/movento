@@ -15,7 +15,7 @@ import java.util.Optional;
 @Repository
 public interface ViewHistoryRepository extends BaseRepository<ViewHistory, Long> {
     
-    Page<ViewHistory> findByUserIdOrderByLastWatchedAtDesc(Long userId, Pageable pageable);
+    Page<ViewHistory> findByUserIdOrderByViewedAtDesc(Long userId, Pageable pageable);
     
     Optional<ViewHistory> findByContentIdAndUserId(Long contentId, Long userId);
     
@@ -34,6 +34,6 @@ public interface ViewHistoryRepository extends BaseRepository<ViewHistory, Long>
     void deleteByUserIdAndContentId(@Param("userId") Long userId, @Param("contentId") Long contentId);
     
     @Modifying
-    @Query("UPDATE ViewHistory vh SET vh.isCompleted = true, vh.progressSeconds = vh.content.durationMinutes * 60 WHERE vh.id = :id")
+    @Query("UPDATE ViewHistory vh SET vh.completed = true, vh.stoppedAtMinute = vh.content.durationMinutes WHERE vh.id = :id")
     void markAsCompleted(@Param("id") Long id);
 }

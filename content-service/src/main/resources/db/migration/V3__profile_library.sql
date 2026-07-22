@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS watchlist_items (id BIGSERIAL PRIMARY KEY, profile_id UUID NOT NULL, content_id BIGINT NOT NULL REFERENCES content(id) ON DELETE CASCADE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(profile_id,content_id));
+CREATE INDEX IF NOT EXISTS idx_watchlist_profile ON watchlist_items(profile_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS playback_progress (id BIGSERIAL PRIMARY KEY, profile_id UUID NOT NULL, content_id BIGINT NOT NULL REFERENCES content(id) ON DELETE CASCADE, episode_key VARCHAR(100) NOT NULL DEFAULT '', progress_seconds INTEGER NOT NULL DEFAULT 0, duration_seconds INTEGER NOT NULL, completed BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(profile_id,content_id,episode_key));
+CREATE INDEX IF NOT EXISTS idx_progress_profile ON playback_progress(profile_id,updated_at DESC);

@@ -1,0 +1,1 @@
+export default function Loading(){return <div className="flex min-h-screen items-center justify-center"><div className="size-9 animate-spin rounded-full border-2 border-primary border-t-transparent"/><span className="sr-only">Loading</span></div>}

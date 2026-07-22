@@ -106,8 +106,7 @@ public class ContentServiceImpl extends BaseServiceImpl<Content, Long> implement
         mapContentRequestToContent(movieRequest, movie);
         movie.setDirector(movieRequest.getDirector());
         movie.setImdbRating(movieRequest.getImdbRating());
-        movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue() != null ? 
-            movieRequest.getBoxOfficeRevenue().doubleValue() : null);
+        movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue());
         
         if (genreIds != null && !genreIds.isEmpty()) {
             Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));
@@ -128,8 +127,7 @@ public class ContentServiceImpl extends BaseServiceImpl<Content, Long> implement
             mapContentRequestToContent(movieRequest, movie);
             movie.setDirector(movieRequest.getDirector());
             movie.setImdbRating(movieRequest.getImdbRating());
-            movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue() != null ? 
-                movieRequest.getBoxOfficeRevenue().doubleValue() : null);
+            movie.setBoxOfficeRevenue(movieRequest.getBoxOfficeRevenue());
             
             if (genreIds != null) {
                 Set<Genre> genres = new HashSet<>(genreRepository.findAllById(genreIds));

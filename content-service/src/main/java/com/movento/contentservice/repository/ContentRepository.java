@@ -21,8 +21,39 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
     
     Page<Content> findAllByOrderByCreatedAtDesc(Pageable pageable);
     
-    @Query("SELECT c FROM Content c ORDER BY c.averageRating DESC NULLS LAST")
+    @Query("SELECT c FROM Content c LEFT JOIN c.ratings r GROUP BY c ORDER BY AVG(r.rating) DESC")
     Page<Content> findAllOrderByAverageRatingDesc(Pageable pageable);
+
+    Optional<Content> findBySlugAndActiveTrue(String slug);
+    Page<Content> findByActiveTrue(Pageable pageable);
+    Page<Content> findByActiveTrueAndTitleContainingIgnoreCase(String query, Pageable pageable);
+    List<Content> findTop12ByActiveTrueAndTrendingTrueOrderByCreatedAtDesc();
+    List<Content> findTop12ByActiveTrueOrderByCreatedAtDesc();
+    Optional<Content> findFirstByActiveTrueAndFeaturedTrueOrderByCreatedAtDesc();
+
+    @Query("""
+        SELECT c FROM Content c
+        LEFT JOIN c.genres g
+        WHERE c.active = true
+          AND (
+            LOWER(c.title) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(c.contentRating) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR LOWER(g.name) LIKE LOWER(CONCAT('%', :query, '%'))
+            OR CAST(c.releaseYear AS string) = :query
+          )
+        ORDER BY
+          CASE
+            WHEN LOWER(c.title) = LOWER(:query) THEN 0
+            WHEN LOWER(c.title) LIKE LOWER(CONCAT(:query, '%')) THEN 1
+            WHEN LOWER(c.title) LIKE LOWER(CONCAT('%', :query, '%')) THEN 2
+            ELSE 3
+          END,
+          c.trending DESC,
+          c.releaseYear DESC,
+          c.title ASC
+        """)
+    List<Content> searchCatalog(@Param("query") String query, Pageable pageable);
     
     @Query("SELECT c FROM Content c WHERE c.id IN :ids")
     List<Content> findByIds(@Param("ids") List<Long> ids);

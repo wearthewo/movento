@@ -3,7 +3,7 @@ package com.movento.contentservice.model;
 import lombok.Getter;
 import lombok.Setter;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Getter
@@ -17,7 +17,11 @@ public class ViewHistory extends BaseEntity {
     private Content content;
     
     @Column(name = "user_id", nullable = false)
-    private String userId;
+    private Long userId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "episode_id")
+    private Episode episode;
     
     @Column(name = "viewed_at", nullable = false)
     private LocalDateTime viewedAt = LocalDateTime.now();
@@ -33,7 +37,7 @@ public class ViewHistory extends BaseEntity {
     }
     
     // Constructor with required fields
-    public ViewHistory(Content content, String userId) {
+    public ViewHistory(Content content, Long userId) {
         this.content = content;
         this.userId = userId;
     }

@@ -1,0 +1,1 @@
+import {AuthForm} from "@/components/auth-form";export const metadata={title:"Sign in"};export default function SignIn(){return <><h1 className="mb-2 text-3xl font-black">Welcome back</h1><p className="mb-7 text-sm text-muted-foreground">Sign in to continue watching.</p><AuthForm mode="login"/></>}

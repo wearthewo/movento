@@ -16,6 +16,7 @@ docs/
 
 # Build artifacts
 target/
+**/target/
 build/
 *.jar
 *.war
@@ -43,6 +44,12 @@ tests/
 
 # Node modules (if any)
 node_modules/
+**/node_modules/
+**/.next/
+**/.npm-cache/
+.mvn/apache-maven-*/
+.local-tools/
+.agents/
 
 # Cache
 .cache/
@@ -70,12 +77,15 @@ grafana/
 # Database dumps
 *.sql
 *.dump
+!postgres/init-databases.sql
+!**/src/main/resources/db/migration/*.sql
 
 # Certificates
 *.pem
 *.key
 *.crt
 *.p12
+!.local-certs/*.pem
 
 # Backup files
 *.bak

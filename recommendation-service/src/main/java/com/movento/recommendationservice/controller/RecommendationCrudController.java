@@ -13,15 +13,21 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/items")
+@RequestMapping("/api/v1/recommendations")
 @RequiredArgsConstructor
 public class RecommendationCrudController {
 
     private final RecommendationService service;
+
+    @GetMapping
+    public List<RecommendationResponse> recommendations(@RequestHeader("X-Account-Id") Long accountId) {
+        return service.getUserRecommendations(accountId);
+    }
 
     @PostMapping
     public ResponseEntity<RecommendationResponse> create(@Valid @RequestBody RecommendationRequest request) {

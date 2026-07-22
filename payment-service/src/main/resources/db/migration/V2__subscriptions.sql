@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id BIGINT PRIMARY KEY,
+  stripe_customer_id VARCHAR(255) UNIQUE,
+  stripe_subscription_id VARCHAR(255) UNIQUE,
+  plan_id VARCHAR(100) NOT NULL,
+  status VARCHAR(30) NOT NULL,
+  current_period_end TIMESTAMP WITH TIME ZONE,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(100) NOT NULL,
+  processed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

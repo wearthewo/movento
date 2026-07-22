@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@theme inline{--font-sans:"Geist","Geist Fallback",ui-sans-serif,system-ui,sans-serif;--font-mono:"Geist Mono","Geist Mono Fallback",ui-monospace,monospace;--color-background:oklch(.11 0 0);--color-foreground:oklch(.97 0 0);--color-card:oklch(.17 0 0);--color-card-foreground:oklch(.97 0 0);--color-primary:oklch(.61 .23 25);--color-primary-foreground:white;--color-muted:oklch(.23 0 0);--color-muted-foreground:oklch(.72 0 0);--color-border:oklch(.29 0 0);--radius:.625rem}
+*{border-color:var(--color-border)}html{background:#0b0b0b;color:white}body{min-height:100vh;background:radial-gradient(circle at 85% 0%,rgba(177,24,38,.11),transparent 28%),#0b0b0b}.text-balance{text-wrap:balance}
+.no-scrollbar{scrollbar-width:none}.no-scrollbar::-webkit-scrollbar{display:none}
+.rail-fade{mask-image:linear-gradient(90deg,transparent 0,#000 1.5rem,#000 calc(100% - 1.5rem),transparent 100%)}

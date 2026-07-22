@@ -9,17 +9,30 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import java.nio.charset.StandardCharsets;
 
 
 @Component
 public class AuthenticationFilter extends AbstractGatewayFilterFactory<AuthenticationFilter.Config> {
 
     private static final List<String> openApiEndpoints = List.of(
-            "/api/users/register",
-            "/api/users/login",
-            "/api/users/refresh-token",
+            "/api/v1/auth/register",
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh",
+            "/api/v1/webhooks/stripe",
+            "/api/v1/catalog",
             "/actuator/health"
     );
+
+    @Value("${security.jwt.secret}")
+    private String jwtSecret;
+
+    @Value("${security.jwt.issuer:movento}")
+    private String issuer;
 
     public AuthenticationFilter() {
         super(Config.class);
@@ -45,15 +58,35 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
                 return handleUnAuthorized(exchange);
             }
 
-            // TODO: Validate JWT token with User Service
-            // For now, just pass the request through
-            return chain.filter(exchange);
+            try {
+                String token = authHeader.substring(7);
+                Claims claims = Jwts.parserBuilder()
+                        .requireIssuer(issuer)
+                        .setSigningKey(Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8)))
+                        .build().parseClaimsJws(token).getBody();
+                if (request.getURI().getPath().startsWith("/api/v1/admin/") && !String.valueOf(claims.get("roles")).contains("ROLE_ADMIN")) {
+                    exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+                    return exchange.getResponse().setComplete();
+                }
+                ServerHttpRequest trustedRequest = request.mutate()
+                        .headers(headers -> {
+                            headers.remove("X-Account-Id"); headers.remove("X-Profile-Id"); headers.remove("X-User-Email"); headers.remove("X-User-Roles");
+                            headers.add("X-Account-Id", String.valueOf(claims.get("accountId")));
+                            headers.add("X-User-Email", claims.getSubject());
+                            if (claims.get("profileId") != null) headers.add("X-Profile-Id", String.valueOf(claims.get("profileId")));
+                            Object roles = claims.get("roles");
+                            if (roles != null) headers.add("X-User-Roles", roles.toString());
+                        }).build();
+                return chain.filter(exchange.mutate().request(trustedRequest).build());
+            } catch (Exception invalidToken) {
+                return handleUnAuthorized(exchange);
+            }
         };
     }
 
     private boolean isOpenEndpoint(ServerHttpRequest request) {
         return openApiEndpoints.stream()
-                .anyMatch(uri -> request.getURI().getPath().contains(uri));
+                .anyMatch(uri -> request.getURI().getPath().startsWith(uri));
     }
 
     private Mono<Void> handleUnAuthorized(ServerWebExchange exchange) {

@@ -1,7 +1,5 @@
 server:
-  port: 8084
-  servlet:
-    context-path: /api/recommendations
+  port: ${PORT:8084}
 
 spring:
   application:
@@ -13,7 +11,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: true
     properties:
       hibernate:

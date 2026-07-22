@@ -34,6 +34,7 @@ dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
+.mvn/apache-maven-*/
 
 # Gradle
 .gradle
@@ -112,6 +113,7 @@ jspm_packages/
 
 # Optional npm cache directory
 .npm
+.npm-cache/
 
 # Optional eslint cache
 .eslintcache
@@ -161,6 +163,8 @@ public
 # Temporary folders
 tmp/
 temp/
+.local-tools/
+.agents/
 
 # Editor directories and files
 .vscode/*
@@ -182,6 +186,8 @@ temp/
 *.key
 *.crt
 *.p12
+.local-certs/*
+!.local-certs/.gitkeep
 
 # Backup files
 *.bak
@@ -210,8 +216,13 @@ dump.rdb
 
 # PostgreSQL
 *.sql
+!**/src/main/resources/db/migration/*.sql
+!postgres/init-databases.sql
 
 # Application specific
 application-local.properties
 application-dev.properties
 application-prod.properties
+web/.next/
+web/node_modules/
+web/.env*.local

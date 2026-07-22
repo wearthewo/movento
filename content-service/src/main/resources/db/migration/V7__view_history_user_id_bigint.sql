@@ -1,0 +1,1 @@
+ALTER TABLE view_history ALTER COLUMN user_id TYPE BIGINT USING user_id::BIGINT;

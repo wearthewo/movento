@@ -92,7 +92,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
             return viewHistoryRepository.findByUserIdAndContentId(userId, contentId, pageable)
                     .map(viewHistoryMapper::toDto);
         } else if (userId != null) {
-            return viewHistoryRepository.findByUserIdOrderByLastWatchedAtDesc(userId, pageable)
+            return viewHistoryRepository.findByUserIdOrderByViewedAtDesc(userId, pageable)
                     .map(viewHistoryMapper::toDto);
         } else if (contentId != null) {
             return viewHistoryRepository.findByContentId(contentId, pageable)
@@ -106,7 +106,7 @@ public class ViewHistoryServiceImpl implements ViewHistoryService {
     @Transactional(readOnly = true)
     public Page<ViewHistoryDto> getRecentWatched(Long userId, int limit) {
         Pageable pageable = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "viewedAt"));
-        return viewHistoryRepository.findByUserIdOrderByLastWatchedAtDesc(userId, pageable)
+        return viewHistoryRepository.findByUserIdOrderByViewedAtDesc(userId, pageable)
                 .map(viewHistoryMapper::toDto);
     }
 

@@ -1,261 +1,289 @@
-# Movento - Microservices Streaming Platform
+# Movento
 
-A comprehensive microservices-based streaming platform built with Spring Boot, featuring user management, content streaming, recommendations, and payment processing.
+Movento is a local-first Netflix-inspired streaming portfolio app. It runs with Docker Compose and includes a Next.js frontend, a Spring Cloud API gateway, Eureka service discovery, Spring Boot domain services, PostgreSQL, Redis, and RabbitMQ.
 
-##  Architecture Overview
+This repo is intentionally configured for local development and GitHub Actions validation. It does not deploy to Vercel, Render, or any live host.
 
-Movento follows a **microservices architecture** pattern with service discovery, API gateway, and containerized deployment.
+## System Architecture
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Nginx LB      │    │   API Gateway   │    │  Service Registry│
-│   (Port 80/443) │───▶│   (Port 8080)   │───▶│   (Port 8761)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │
-                                ▼
-        ┌─────────────────────────────────────────────────────────┐
-        │                    Microservices                      │
-        │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-        │  │User Service │  │Streaming    │  │Payment      │    │
-        │  │ (Port 8081) │  │Service      │  │Service      │    │
-        │  │             │  │ (Port 8083) │  │ (Port 8082) │    │
-        │  └─────────────┘  └─────────────┘  └─────────────┘    │
-        │  ┌─────────────┐  ┌─────────────┐                       │
-        │  │Content      │  │Recommendation│                      │
-        │  │Service      │  │Service      │                      │
-        │  │ (Port 8085) │  │ (Port 8084) │                      │
-        │  └─────────────┘  └─────────────┘                       │
-        └─────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-        ┌─────────────────────────────────────────────────────────┐
-        │                  Infrastructure                       │
-        │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-        │  │PostgreSQL   │  │   Redis     │  │  RabbitMQ   │    │
-        │  │Master/Replica│ │  (Port 6379) │  │ (Port 5672) │    │
-        │  │ (Port 5432) │  │             │  │             │    │
-        │  └─────────────┘  └─────────────┘  └─────────────┘    │
-        │  ┌─────────────┐                                      │
-        │  │Elasticsearch│                                      │
-        │  │ (Port 9200) │                                      │
-        │  └─────────────┘                                      │
-        └─────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-        ┌─────────────────────────────────────────────────────────┐
-        │                  Monitoring                            │
-        │  ┌─────────────┐  ┌─────────────┐                    │
-        │  │Prometheus   │  │   Grafana   │                    │
-        │  │ (Port 9090) │  │ (Port 3000) │                    │
-        │  └─────────────┘  └─────────────┘                    │
-        └─────────────────────────────────────────────────────────┘
+Browser traffic goes to the Next.js app at `http://localhost:3000`. The Next.js app acts as a small backend-for-frontend for cookies and browser calls, then forwards API traffic to the public API gateway at `http://localhost:8080`.
+
+The API gateway validates/forwards requests to private Spring services through Eureka. Domain services use PostgreSQL for durable state, Redis for cache/session-style support, and RabbitMQ for asynchronous events.
+
+```text
+Browser
+  -> web / Next.js 16 :3000
+    -> api-gateway :8080
+      -> service-registry / Eureka :8761
+      -> user-service :8081
+      -> payment-service :8082
+      -> streaming-service :8083
+      -> recommendation-service :8084
+      -> content-service :8085
+            -> PostgreSQL :5432
+            -> Redis :6379
+            -> RabbitMQ :5672 / management :15672
 ```
 
-##  Microservices
+## Containers
 
-### User Service (`user-service`)
-- **Port**: 8081
-- **Purpose**: User authentication, registration, and profile management
-- **Features**: JWT-based authentication, user CRUD operations
-- **Database**: PostgreSQL (movento_user_db)
+`docker-compose.yml` starts eleven containers:
 
-### Streaming Service (`streaming-service`)
-- **Port**: 8083
-- **Purpose**: Content streaming and media management
-- **Features**: Video/audio streaming, content metadata
-- **Database**: PostgreSQL (movento_streaming_db)
-- **Message Queue**: RabbitMQ for async processing
+| Service | Purpose | Port |
+|---|---|---:|
+| `web` | Next.js frontend and BFF route handlers | `3000` |
+| `api-gateway` | Public API entry point and routing | `8080` |
+| `service-registry` | Eureka discovery server | `8761` |
+| `user-service` | auth, accounts, viewer profiles, refresh tokens | internal `8081` |
+| `content-service` | catalog, search, watchlist, progress, admin catalog | internal `8085` |
+| `streaming-service` | playback sessions and demo HLS fallback | internal `8083` |
+| `recommendation-service` | recommendation API and event foundation | internal `8084` |
+| `payment-service` | Stripe test subscription foundation | internal `8082` |
+| `postgres` | local PostgreSQL databases | `5432` |
+| `redis` | cache/local state support | `6379` |
+| `rabbitmq` | events and management UI | `5672`, `15672` |
 
-### Payment Service (`payment-service`)
-- **Port**: 8082
-- **Purpose**: Payment processing and subscription management
-- **Features**: Payment gateway integration, subscription handling
-- **Database**: PostgreSQL (movento_payment_db)
+## Local Commands
 
-### Content Service (`content-service`)
-- **Port**: 8085
-- **Purpose**: Content management and catalog operations
-- **Features**: Movie/TV show metadata, content CRUD operations, genre management
-- **Database**: PostgreSQL (movento_content_db)
-- **Search**: Elasticsearch for content indexing
+Start everything:
 
-### Recommendation Service (`recommendation-service`)
-- **Port**: 8084
-- **Purpose**: Content recommendations and user analytics
-- **Features**: ML-based recommendations, user behavior tracking
-- **Database**: PostgreSQL (movento_recommendation_db)
-- **Search**: Elasticsearch for content indexing
-
-### API Gateway (`api-gateway`)
-- **Port**: 8080
-- **Purpose**: Single entry point, routing, and cross-cutting concerns
-- **Features**: Request routing, rate limiting, authentication
-- **Load Balancer**: Nginx for production deployment
-
-### Service Registry (`service-registry`)
-- **Port**: 8761
-- **Purpose**: Service discovery and registration
-- **Technology**: Eureka Server
-
-##  Technology Stack
-
-### Backend Framework
-- **Spring Boot 3.x** - Main application framework
-- **Spring Security** - Authentication and authorization
-- **Spring Data JPA** - Database access layer
-- **Spring Cloud** - Microservices infrastructure
-- **Eureka** - Service discovery
-
-### Database & Persistence
-- **PostgreSQL 14** - Primary database with master-replica replication
-- **Flyway** - Database migration management
-- **Redis 7** - Caching and session storage
-- **Elasticsearch 8.5** - Search and analytics
-
-### Message Queue
-- **RabbitMQ 3.11** - Asynchronous messaging and event streaming
-
-### Containerization & Orchestration
-- **Docker** - Containerization
-- **Docker Compose** - Local development and multi-container deployment
-- **Nginx** - Load balancing and reverse proxy
-
-### Monitoring & Observability
-- **Prometheus** - Metrics collection
-- **Grafana** - Metrics visualization and dashboards
-- **Spring Boot Actuator** - Application health and metrics
-
-### Development Tools
-- **Maven** - Build automation and dependency management
-- **Java 17** - Runtime platform
-- **Lombok** - Code generation and boilerplate reduction
-
-### Security
-- **JWT (JSON Web Tokens)** - Stateless authentication
-- **BCrypt** - Password hashing
-- **HTTPS/TLS** - Secure communication
-
-##  Deployment
-
-### Development Environment
-```bash
-# Start all services for development
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
+```powershell
+docker compose up --build
 ```
 
-### Production Environment
-```bash
-# Start full production stack with monitoring
-docker-compose -f docker-compose-full.yml up -d
+Start in the background:
 
-# Scale API services
-docker-compose -f docker-compose-full.yml up -d --scale api=3
+```powershell
+docker compose up -d --build
 ```
 
-### Environment Variables
-Create a `.env` file for configuration:
-```env
-REDIS_PASSWORD=your_redis_password
-RABBITMQ_USER=your_rabbitmq_user
-RABBITMQ_PASSWORD=your_rabbitmq_password
-JWT_SECRET=your_jwt_secret_key
-STRIPE_SECRET_KEY=your_stripe_secret_key
-STRIPE_PUBLIC_KEY=your_stripe_public_key
-STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+Check status:
+
+```powershell
+docker compose ps
 ```
 
-##  Configuration Profiles
+Read logs:
 
-- **`dev`** - Development configuration with local databases
-- **`docker`** - Docker containerized development
-- **`prod`** - Production configuration with monitoring and scaling
-
-##  Database Architecture
-
-### Master-Replica Setup
-- **Master**: Handles all write operations
-- **Replica**: Handles read operations and provides failover capability
-- **Replication**: Streaming replication using WAL (Write-Ahead Log)
-
-### Database Schema
-Each microservice has its own database schema to ensure loose coupling:
-- `movento_user_db` - User management
-- `movento_content_db` - Content catalog and metadata
-- `movento_streaming_db` - Content and media
-- `movento_payment_db` - Payments and subscriptions
-- `movento_recommendation_db` - Recommendations and analytics
-
-##  API Documentation
-
-### Gateway Endpoints
-- **Authentication**: `/api/auth/*` - Login, registration, token refresh
-- **Users**: `/api/users/*` - User profile management
-- **Content**: `/api/content/*` - Content catalog and metadata
-- **Streaming**: `/api/streaming/*` - Content streaming
-- **Payments**: `/api/payments/*` - Payment processing
-- **Recommendations**: `/api/recommendations/*` - Content recommendations
-
-### Service Registry
-- **Eureka Dashboard**: `http://localhost:8761`
-- **Service Health**: Actuator endpoints on each service
-
-### Prerequisites
-- Docker & Docker Compose
-- Java 17 (for local development)
-- Maven 3.8+
-
-### Quick Start
-1. Clone the repository
-2. Copy `.env.example` to `.env` and configure
-3. Run `docker-compose up -d`
-4. Access services:
-   - API Gateway: http://localhost:8080
-   - Eureka: http://localhost:8761
-   - Grafana: http://localhost:3000 (admin/admin)
-
-### Development Mode
-```bash
-# Build all services
-mvn clean install
-
-# Run individual service
-cd user-service
-mvn spring-boot:run
+```powershell
+docker compose logs -f web
+docker compose logs -f api-gateway
+docker compose logs -f content-service
 ```
 
-##  Security Features
+Stop containers but keep PostgreSQL, Redis, RabbitMQ, and web dependency volumes:
 
-- **JWT Authentication**: Stateless token-based authentication
-- **Password Security**: BCrypt hashing for password storage
-- **API Security**: Rate limiting and request validation
-- **Database Security**: Encrypted connections and least privilege access
-- **Container Security**: Non-root users and minimal base images
+```powershell
+docker compose down
+```
 
-##  Monitoring & Observability
+Remove local volumes only when you want a fresh database/cache/message state:
 
-### Metrics Collection
-- **Prometheus**: Collects application and infrastructure metrics
-- **Grafana**: Visualizes metrics with custom dashboards
-- **Spring Boot Actuator**: Exposes health, metrics, and info endpoints
+```powershell
+docker compose down -v
+```
 
-### Logging
-- **Structured Logging**: JSON format for log aggregation
-- **Log Levels**: Configurable per environment
-- **Centralized Logging**: Can be integrated with ELK stack
+Health checks:
 
-##  CI/CD Pipeline
+```powershell
+Invoke-RestMethod http://localhost:8080/actuator/health
+Invoke-WebRequest http://localhost:3000
+```
 
-### GitHub Actions
-- **Build**: Automated Maven builds
-- **Test**: Unit and integration tests
-- **Security**: Dependency vulnerability scanning
-- **Deploy**: Automated deployment to staging/production
+Open:
 
+- App: `http://localhost:3000`
+- Gateway health: `http://localhost:8080/actuator/health`
+- Eureka: `http://localhost:8761`
+- RabbitMQ UI: `http://localhost:15672` (`guest` / `guest` by default)
 
+## Build Commands
 
+Full local CI:
+
+```powershell
+.\scripts\local-ci.ps1
+```
+
+The local CI script creates an ignored Java truststore when a certificate is present in `.local-certs/`, then runs the backend reactor, frontend lint/type/build checks in Node 22, Compose validation, and all Docker image builds. This is the closest local equivalent of GitHub Actions.
+
+Backend single module:
+
+```powershell
+.\mvnw.cmd clean package -pl content-service -am -DskipTests
+```
+
+Frontend:
+
+```powershell
+cd web
+npm ci --no-audit --no-fund
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Docker image build matrix is handled by Compose locally:
+
+```powershell
+docker compose build
+```
+
+Validate Compose syntax:
+
+```powershell
+docker compose config --quiet
+```
+
+## Local Certificate Note
+
+If Avast Web/Mail Shield or another antivirus intercepts HTTPS, Node inside Docker may fail with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. The web image imports optional PEM certificates from `.local-certs/` while it builds.
+
+The real certificate file and generated truststore are ignored by git. If your machine does not need them, leave only `.local-certs/.gitkeep` in place.
+
+## Catalog and Search
+
+`content-service` owns catalog data. Viewer endpoints live under:
+
+- `GET /api/v1/catalog/home`
+- `GET /api/v1/catalog/titles`
+- `GET /api/v1/catalog/titles?type=MOVIE`
+- `GET /api/v1/catalog/titles?type=SERIES`
+- `GET /api/v1/catalog/search?q=sci-fi`
+- `GET /api/v1/catalog/titles/{slug}`
+
+Search is PostgreSQL-backed for the local MVP. It searches title, synopsis, maturity rating, genre, and release year, then ranks exact/prefix title matches first, trending titles next, and newer titles after that.
+
+## Auth and Local Billing
+
+Auth is handled by `user-service` and proxied through Next.js route handlers:
+
+- Browser forms call `POST /api/auth/register` or `POST /api/auth/login`.
+- The Next.js route handler forwards to `api-gateway` and stores the real JWT pair in HTTP-only cookies.
+- Protected browser calls go through `/api/backend/**`, which attaches the access token to the gateway.
+- The gateway validates the JWT and injects trusted `X-Account-Id`, `X-User-Email`, `X-Profile-Id`, and role headers for internal services.
+
+Quick auth smoke test:
+
+```powershell
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$email = "local$(Get-Date -Format yyyyMMddHHmmss)@example.com"
+$body = @{firstName="Local";lastName="User";email=$email;password="Password123!"} | ConvertTo-Json
+Invoke-WebRequest -WebSession $session -Uri http://localhost:3000/api/auth/register -Method Post -ContentType application/json -Body $body
+Invoke-WebRequest -WebSession $session -Uri http://localhost:3000/api/backend/users/me
+```
+
+Stripe is local/test-mode only:
+
+- To open real Stripe Checkout, set `STRIPE_SECRET_KEY` and `STRIPE_PRICE_ID` in `.env`.
+- `STRIPE_PRICE_ID` must be a recurring subscription Price ID from Stripe test mode, usually starting with `price_`.
+- Recreate payment-service after changing Stripe env vars:
+
+```powershell
+docker compose up -d --build payment-service
+```
+
+- Test card: `4242 4242 4242 4242`, any future expiry, any CVC.
+- If `STRIPE_PRICE_ID` is blank, checkout intentionally returns `http://localhost:3000/account?billing=demo` and the Account page shows setup guidance instead of silently failing.
+- Subscription status changes only after Stripe webhooks are delivered to `POST /api/v1/webhooks/stripe` with a valid Stripe signature.
+
+## Frontend Request Performance
+
+The web app runs as a standalone production build on `node:22-alpine`. To keep local requests responsive:
+
+- Public catalog reads use unauthenticated gateway fetches with short Next.js revalidation.
+- Protected calls still use `cache: no-store` because they depend on the signed-in user.
+- Dependencies, lint, typechecking, and `next build` run while the image is built; the container starts the precompiled application with `node server.js`.
+- After changing frontend source, rebuild it with `docker compose up -d --build web`.
+- Next BFF route handlers log a warning for backend calls slower than one second.
+
+If the first request after `docker compose up` feels slow, wait for Eureka registration and Spring warmup:
+
+```powershell
+docker compose ps
+docker compose logs -f api-gateway content-service user-service
+```
+
+## Flyway Migrations
+
+Content service migrations:
+
+| Migration | Purpose |
+|---|---|
+| `V1__Initial_schema.sql` | Base genres, content, movies, TV shows, seasons, episodes, ratings, view history |
+| `V2__catalog_mvp.sql` | Slugs, featured/trending flags, language, content discriminator, media assets, trigram title index |
+| `V3__profile_library.sql` | Profile-scoped watchlist and playback progress |
+| `V4__demo_catalog.sql` | First demo movies and genre links |
+| `V5__base_entity_columns.sql` | Adds optimistic-lock `version` columns expected by Java entities |
+| `V6__view_history_entity_alignment.sql` | Aligns view history fields with the Java entity |
+| `V7__view_history_user_id_bigint.sql` | Converts view history user IDs back to numeric IDs |
+| `V8__expanded_demo_catalog.sql` | Adds more movies, series, genres, and genre links |
+
+User service migrations include the base user schema, viewer profiles/normalized email, and refresh tokens. Payment service migrations include payment/subscription tables and webhook event tracking.
+
+## Java Service Notes
+
+The root Maven build is the canonical backend build. Each Spring Boot service is a Maven module using Java 17 and Spring Boot 3/Jakarta APIs.
+
+Important packages:
+
+- `controller`: public HTTP endpoints.
+- `service`: application logic and transaction boundaries.
+- `repository`: Spring Data JPA access.
+- `model`: JPA entities mapped to Flyway-managed SQL tables.
+- `dto`: request/response objects and mapper types.
+- `config`: local infrastructure settings such as RabbitMQ, Redis, Elasticsearch toggles, metrics, and security.
+
+The backend uses `spring.jpa.hibernate.ddl-auto=validate`, so Java entities must match Flyway SQL. If an entity and table drift apart, the service fails fast during startup instead of silently changing the database.
+
+## Frontend Notes
+
+The `web` app uses Next.js App Router, React 19, TypeScript, Tailwind CSS, and small UI primitives.
+
+Key paths:
+
+- `web/src/app/(app)/browse/page.tsx`: home/browse experience.
+- `web/src/app/(app)/search/page.tsx`: server-rendered search using the gateway.
+- `web/src/app/(app)/title/[slug]/page.tsx`: title detail page.
+- `web/src/components/title-card.tsx`: reusable poster card.
+- `web/src/components/content-rail.tsx`: horizontal content rails.
+- `web/src/lib/api.ts`: server-side gateway calls with demo fallback data.
+
+## GitHub Actions
+
+`.github/workflows/ci-cd.yml` validates the supported local stack:
+
+1. `backend`: runs `./mvnw --batch-mode verify`.
+2. `frontend`: runs `npm ci`, lint, typecheck, and build.
+3. `docker`: builds every backend service Docker image without pushing.
+4. `compose`: starts the stack, waits for readiness, checks routing and Eureka registration, and always cleans up.
+
+No deploy jobs are included.
+
+`docker-compose-full.yml`, `nginx/`, and the old Prometheus/Grafana/Elasticsearch configuration are retained only as legacy reference material. They are not part of the supported local stack or CI and should not be used as a production deployment definition.
+
+## Troubleshooting
+
+RabbitMQ cookie permission errors:
+
+```powershell
+docker volume rm movento_rabbitmq_data
+docker compose up -d rabbitmq
+```
+
+Do not remove PostgreSQL or Redis volumes unless you want to reset app data.
+
+Re-run only one service after code changes:
+
+```powershell
+docker compose up -d --build content-service
+```
+
+Check why a service exited:
+
+```powershell
+docker compose ps --all
+docker compose logs --tail=200 content-service
+```
+
+The production web container should start quickly. A frontend rebuild is slower because it performs a clean install, lint, typecheck, and production compilation before replacing the running container.

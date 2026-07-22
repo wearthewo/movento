@@ -5,6 +5,7 @@ import com.movento.paymentservice.repository.elasticsearch.PaymentAuditLogReposi
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "app.elasticsearch.enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class PaymentAuditService {
 

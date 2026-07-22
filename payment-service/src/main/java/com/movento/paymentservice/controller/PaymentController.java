@@ -8,7 +8,10 @@ import com.movento.paymentservice.model.elasticsearch.PaymentDocument;
 import com.movento.paymentservice.service.PaymentService;
 import com.movento.paymentservice.service.elasticsearch.PaymentSearchService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +29,7 @@ import java.util.stream.Collectors;
 public class PaymentController {
 
     private final PaymentService paymentService;
-    private final PaymentSearchService paymentSearchService;
+    private final ObjectProvider<PaymentSearchService> paymentSearchServiceProvider;
 
     @PostMapping
     public ResponseEntity<ApiResponse<PaymentResponse>> processPayment(
@@ -71,7 +74,7 @@ public class PaymentController {
             @RequestParam String query,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        Page<PaymentDocument> payments = paymentSearchService.searchPayments(query, page, size);
+        Page<PaymentDocument> payments = paymentSearchService().searchPayments(query, page, size);
         return ResponseEntity.ok(ApiResponse.<Page<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments searched successfully")
@@ -83,7 +86,7 @@ public class PaymentController {
     public ResponseEntity<ApiResponse<List<PaymentDocument>>> findPaymentsByAmountRange(
             @RequestParam BigDecimal minAmount,
             @RequestParam BigDecimal maxAmount) {
-        List<PaymentDocument> payments = paymentSearchService.findPaymentsByAmountRange(minAmount, maxAmount);
+        List<PaymentDocument> payments = paymentSearchService().findPaymentsByAmountRange(minAmount, maxAmount);
         return ResponseEntity.ok(ApiResponse.<List<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments found by amount range")
@@ -94,7 +97,7 @@ public class PaymentController {
     @GetMapping("/search/status")
     public ResponseEntity<ApiResponse<List<PaymentDocument>>> findPaymentsByStatus(
             @RequestParam String status) {
-        List<PaymentDocument> payments = paymentSearchService.findPaymentsByStatus(status);
+        List<PaymentDocument> payments = paymentSearchService().findPaymentsByStatus(status);
         return ResponseEntity.ok(ApiResponse.<List<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments found by status")
@@ -105,7 +108,7 @@ public class PaymentController {
     @GetMapping("/search/user/{userId}")
     public ResponseEntity<ApiResponse<List<PaymentDocument>>> findPaymentsByUserId(
             @PathVariable String userId) {
-        List<PaymentDocument> payments = paymentSearchService.findPaymentsByUserId(userId);
+        List<PaymentDocument> payments = paymentSearchService().findPaymentsByUserId(userId);
         return ResponseEntity.ok(ApiResponse.<List<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments found by user ID")
@@ -116,7 +119,7 @@ public class PaymentController {
     @GetMapping("/search/description")
     public ResponseEntity<ApiResponse<List<PaymentDocument>>> searchInDescription(
             @RequestParam String query) {
-        List<PaymentDocument> payments = paymentSearchService.searchInDescription(query);
+        List<PaymentDocument> payments = paymentSearchService().searchInDescription(query);
         return ResponseEntity.ok(ApiResponse.<List<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments found by description")
@@ -130,7 +133,7 @@ public class PaymentController {
             @RequestParam double minAmount,
             @RequestParam double maxAmount,
             @RequestParam String status) {
-        List<PaymentDocument> payments = paymentSearchService.searchPayments(userId, minAmount, maxAmount, status);
+        List<PaymentDocument> payments = paymentSearchService().searchPayments(userId, minAmount, maxAmount, status);
         return ResponseEntity.ok(ApiResponse.<List<PaymentDocument>>builder()
                 .status(200)
                 .message("Payments found by advanced search")
@@ -140,7 +143,7 @@ public class PaymentController {
     
     @GetMapping("/stats")
     public ResponseEntity<ApiResponse<Map<String, Long>>> getPaymentStats() {
-        Map<String, Long> stats = paymentSearchService.getPaymentStats();
+        Map<String, Long> stats = paymentSearchService().getPaymentStats();
         return ResponseEntity.ok(ApiResponse.<Map<String, Long>>builder()
                 .status(200)
                 .message("Payment statistics retrieved successfully")
@@ -157,5 +160,13 @@ public class PaymentController {
                 .receiptUrl(payment.getReceiptUrl())
                 .createdAt(payment.getCreatedAt())
                 .build();
+    }
+
+    private PaymentSearchService paymentSearchService() {
+        PaymentSearchService service = paymentSearchServiceProvider.getIfAvailable();
+        if (service == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Payment search is disabled");
+        }
+        return service;
     }
 }

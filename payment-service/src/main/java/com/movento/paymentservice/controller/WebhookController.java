@@ -17,13 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/webhooks")
+@RequestMapping("/api/v1/webhooks")
 @RequiredArgsConstructor
 public class WebhookController {
 
     private final StripeWebhookService webhookService;
 
-    @Value("${stripe.api.webhook-secret}")
+    @Value("${stripe.webhook-secret}")
     private String webhookSecret;
 
     @PostMapping("/stripe")

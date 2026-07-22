@@ -3,10 +3,12 @@ package com.movento.contentservice.dto;
 import lombok.Getter;
 import lombok.Setter;
 
-import javax.validation.constraints.Max;
-import javax.validation.constraints.Min;
-import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Size;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -18,9 +20,10 @@ public class ContentRatingDto extends BaseDto {
     private Long userId;
     
     @NotNull
-    @Min(1)
-    @Max(10)
-    private Double rating;
+    @DecimalMin("1.0")
+    @DecimalMax("10.0")
+    @Digits(integer = 2, fraction = 1)
+    private BigDecimal rating;
     
     @Size(max = 2000)
     private String review;

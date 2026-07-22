@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.IndexOperations;
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 
 @Slf4j
 @Configuration
+@ConditionalOnProperty(name = "app.elasticsearch.enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class ElasticsearchIndexInitializer {
 

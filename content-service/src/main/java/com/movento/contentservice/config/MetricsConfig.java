@@ -4,17 +4,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import io.micrometer.core.instrument.binder.db.DatabaseTableMetrics;
-import io.micrometer.core.instrument.binder.jvm.ClassLoaderMetrics;
-import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
-import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
-import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
-import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
-import io.micrometer.core.instrument.binder.system.UptimeMetrics;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import io.micrometer.core.instrument.binder.db.PostgreSQLDatabaseMetrics;
 // Redisson metrics are automatically registered with Micrometer
-import io.micrometer.prometheus.PrometheusConfig;
-import io.micrometer.prometheus.PrometheusMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RedissonClient;
 import org.springframework.cache.Cache;
@@ -23,7 +15,7 @@ import org.springframework.cache.caffeine.CaffeineCache;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -35,41 +27,6 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Configuration
 public class MetricsConfig {
-
-    @Bean
-    public PrometheusMeterRegistry prometheusMeterRegistry() {
-        return new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-    }
-
-    @Bean
-    public MeterBinder jvmMetrics() {
-        return new JvmGcMetrics();
-    }
-
-    @Bean
-    public MeterBinder jvmMemoryMetrics() {
-        return new JvmMemoryMetrics();
-    }
-
-    @Bean
-    public MeterBinder jvmThreadMetrics() {
-        return new JvmThreadMetrics();
-    }
-
-    @Bean
-    public MeterBinder processorMetrics() {
-        return new ProcessorMetrics();
-    }
-
-    @Bean
-    public MeterBinder uptimeMetrics() {
-        return new UptimeMetrics();
-    }
-
-    @Bean
-    public MeterBinder classLoaderMetrics() {
-        return new ClassLoaderMetrics();
-    }
 
     /**
      * Configures database table metrics for PostgreSQL.

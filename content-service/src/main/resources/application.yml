@@ -1,9 +1,5 @@
 server:
-  port: 8082
-  servlet:
-    context-path: /api/content
-    session:
-      timeout: 30m
+  port: ${PORT:8085}
   compression:
     enabled: true
     mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
@@ -12,6 +8,14 @@ server:
 spring:
   application:
     name: content-service
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ReactiveElasticsearchRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ReactiveElasticsearchClientAutoConfiguration
   
   # Database Configuration
   datasource:
@@ -101,7 +105,7 @@ spring:
 eureka:
   client:
     serviceUrl:
-      defaultZone: ${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}
+      defaultZone: ${EUREKA_URL:${EUREKA_SERVICE_URL:http://localhost:8761/eureka/}}
     register-with-eureka: true
     fetch-registry: true
     healthcheck:
@@ -266,6 +270,8 @@ logging:
 
 # Custom Application Properties
 app:
+  elasticsearch:
+    enabled: ${APP_ELASTICSEARCH_ENABLED:false}
   cache:
     ttl: 300 # 5 minutes
   rate-limit:

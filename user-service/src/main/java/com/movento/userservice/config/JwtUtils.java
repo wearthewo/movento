@@ -10,6 +10,8 @@ import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import com.movento.userservice.security.UserDetailsImpl;
+import org.springframework.security.core.GrantedAuthority;
 import java.util.function.Function;
 
 @Component
@@ -19,7 +21,10 @@ public class JwtUtils {
     private String secret;
 
     @Value("${spring.security.jwt.expiration-ms}")
-    private int jwtExpirationMs;
+    private long jwtExpirationMs;
+
+    @Value("${spring.security.jwt.issuer:movento}")
+    private String issuer;
 
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());
@@ -63,7 +68,14 @@ public class JwtUtils {
     }
 
     public String generateToken(UserDetails userDetails) {
+        return generateToken(userDetails, null);
+    }
+
+    public String generateToken(UserDetails userDetails, java.util.UUID profileId) {
         Map<String, Object> claims = new HashMap<>();
+        if (userDetails instanceof UserDetailsImpl details) claims.put("accountId", details.getId());
+        claims.put("roles", userDetails.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList());
+        if (profileId != null) claims.put("profileId", profileId.toString());
         return createToken(claims, userDetails.getUsername());
     }
 
@@ -71,6 +83,7 @@ public class JwtUtils {
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(subject)
+                .setIssuer(issuer)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
                 .setExpiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)

@@ -34,6 +34,15 @@ public class StreamingSession {
     @Column(nullable = false)
     private Long contentId;
 
+    @Column(nullable = false, length = 64)
+    private String profileId = "default";
+
+    @Column(nullable = false)
+    private long progressSeconds = 0;
+
+    @Column(nullable = false)
+    private boolean completed = false;
+
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

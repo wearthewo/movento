@@ -1,0 +1,16 @@
+openapi: 3.0.3
+info: { title: Movento API, version: 1.0.0 }
+servers: [{ url: /api/v1 }]
+paths:
+  /auth/register: { post: { summary: Register an account, responses: { "200": { description: Auth tokens } } } }
+  /auth/login: { post: { summary: Sign in, responses: { "200": { description: Auth tokens } } } }
+  /auth/refresh: { post: { summary: Rotate a refresh token, responses: { "200": { description: New token pair } } } }
+  /users/me/profiles: { get: { summary: List viewer profiles, security: [{ bearerAuth: [] }], responses: { "200": { description: Profiles } } }, post: { summary: Create a viewer profile, security: [{ bearerAuth: [] }], responses: { "201": { description: Created } } } }
+  /catalog/home: { get: { summary: Home rails, responses: { "200": { description: Catalog feed } } } }
+  /catalog/titles: { get: { summary: Browse titles, responses: { "200": { description: Titles } } } }
+  /catalog/titles/{slug}: { get: { summary: Title details, parameters: [{ name: slug, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Title } } } }
+  /library/watchlist: { get: { summary: Current profile watchlist, security: [{ bearerAuth: [] }], responses: { "200": { description: Content identifiers } } } }
+  /recommendations: { get: { summary: Recommendations, security: [{ bearerAuth: [] }], responses: { "200": { description: Recommendations } } } }
+  /billing/checkout: { post: { summary: Create Stripe Checkout session, security: [{ bearerAuth: [] }], responses: { "200": { description: Checkout URL } } } }
+components:
+  securitySchemes: { bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT } }

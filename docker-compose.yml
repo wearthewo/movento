@@ -1,182 +1,66 @@
-version: '3.8'
-
+name: movento
+x-service-env: &service-env
+  EUREKA_URL: http://service-registry:8761/eureka/
+  EUREKA_HOST: service-registry
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_USER: postgres
+  DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
 services:
-  # PostgreSQL Database
   postgres:
-    image: postgres:14.1-alpine
-    container_name: postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: movento_user_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - movento-network
-
-  # RabbitMQ
-  rabbitmq:
-    image: rabbitmq:3.11-management-alpine
-    container_name: rabbitmq
-    environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:guest}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:guest}
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    networks:
-      - movento-network
-
-  # Redis Cache
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: "${DB_PASSWORD:-postgres}"}
+    ports: ["5432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data", "./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro"]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, timeout: 5s, retries: 12}
   redis:
-    image: redis:7.0-alpine
-    container_name: redis
-    ports:
-      - "6379:6379"
-    command: redis-server --requirepass ${REDIS_PASSWORD:}
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - movento-network
-
-  # Eureka Service Discovery
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redis_data:/data"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 12}
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment: {RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-guest}", RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:-guest}"}
+    ports: ["5672:5672", "15672:15672"]
+    volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
+    healthcheck: {test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "ping"], interval: 15s, timeout: 15s, retries: 12, start_period: 120s}
   service-registry:
-    build:
-      context: ./service-registry
-      dockerfile: Dockerfile
-    container_name: service-registry
-    ports:
-      - "8761:8761"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - movento-network
-
-  # API Gateway
-  api-gateway:
-    build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
-    container_name: api-gateway
-    ports:
-      - "8080:8080"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/
-      - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD:}
-    depends_on:
-      - service-registry
-      - redis
-    networks:
-      - movento-network
-
-  # User Service
+    build: {context: ., dockerfile: service-registry/Dockerfile}
+    ports: ["8761:8761"]
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health"], interval: 10s, timeout: 5s, retries: 20}
   user-service:
-    build:
-      context: ./user-service
-      dockerfile: Dockerfile
-    container_name: user-service
-    ports:
-      - "8081:8081"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=movento_user_db
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD:}
-      - JWT_SECRET=${JWT_SECRET:your-jwt-secret-key}
-    depends_on:
-      - postgres
-      - redis
-      - service-registry
-    networks:
-      - movento-network
-
-  # Streaming Service
+    build: {context: ., dockerfile: user-service/Dockerfile}
+    environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"}
+    depends_on: {postgres: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+  content-service:
+    build: {context: ., dockerfile: content-service/Dockerfile}
+    environment: {<<: *service-env, DB_NAME: movento_content_db, USER_SERVICE_URL: "http://user-service:8081"}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
   streaming-service:
-    build:
-      context: ./streaming-service
-      dockerfile: Dockerfile
-    container_name: streaming-service
-    ports:
-      - "8083:8083"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=movento_streaming_db
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD:}
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:guest}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:guest}
-    depends_on:
-      - postgres
-      - redis
-      - rabbitmq
-      - service-registry
-    networks:
-      - movento-network
-
-  # Recommendation Service
+    build: {context: ., dockerfile: streaming-service/Dockerfile}
+    environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}"}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
   recommendation-service:
-    build:
-      context: ./recommendation-service
-      dockerfile: Dockerfile
-    container_name: recommendation-service
-    ports:
-      - "8084:8084"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=movento_recommendation_db
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - REDIS_HOST=redis
-      - REDIS_PASSWORD=${REDIS_PASSWORD:}
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=${RABBITMQ_USER:guest}
-      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD:guest}
-    depends_on:
-      - postgres
-      - redis
-      - rabbitmq
-      - service-registry
-    networks:
-      - movento-network
-
-networks:
-  movento-network:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
-  rabbitmq_data:
+    build: {context: ., dockerfile: recommendation-service/Dockerfile}
+    environment: {<<: *service-env, DB_NAME: movento_recommendation_db}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+  payment-service:
+    build: {context: ., dockerfile: payment-service/Dockerfile}
+    environment: {<<: *service-env, DB_NAME: movento_payment_db, STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_placeholder}", STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}", STRIPE_PRICE_ID: "${STRIPE_PRICE_ID:-}", WEB_URL: "http://localhost:3000"}
+    depends_on: {postgres: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+  api-gateway:
+    build: {context: ., dockerfile: api-gateway/Dockerfile}
+    ports: ["8080:8080"]
+    environment: {EUREKA_URL: "http://service-registry:8761/eureka/", REDIS_HOST: redis, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"}
+    depends_on: {redis: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+  web:
+    build: {context: ., dockerfile: web/Dockerfile}
+    ports: ["3000:3000"]
+    environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "http://localhost:3000", COOKIE_SECURE: "false"}
+    depends_on: [api-gateway]
+volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}}

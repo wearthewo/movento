@@ -3,7 +3,8 @@ package com.movento.contentservice.model;
 import lombok.Getter;
 import lombok.Setter;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
+import java.math.BigDecimal;
 
 @Getter
 @Setter
@@ -16,8 +17,8 @@ public class Movie extends Content {
     private String director;
     
     @Column(name = "imdb_rating", precision = 3, scale = 1)
-    private Double imdbRating;
+    private BigDecimal imdbRating;
     
     @Column(name = "box_office_revenue", precision = 15, scale = 2)
-    private Double boxOfficeRevenue;
+    private BigDecimal boxOfficeRevenue;
 }

@@ -4,10 +4,10 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
-import javax.persistence.DiscriminatorColumn;
+import jakarta.persistence.DiscriminatorColumn;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -23,6 +23,9 @@ public class Content extends BaseEntity {
     
     @Column(nullable = false)
     private String title;
+
+    @Column(nullable = false, unique = true, length = 180)
+    private String slug;
     
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -44,6 +47,15 @@ public class Content extends BaseEntity {
     
     @Column(name = "is_active")
     private boolean active = true;
+
+    @Column(name = "is_featured")
+    private boolean featured;
+
+    @Column(name = "is_trending")
+    private boolean trending;
+
+    @Column(length = 10)
+    private String language = "en";
     
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
