@@ -29,6 +29,7 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
   const router = useRouter();
   const video = useRef<HTMLVideoElement>(null);
   const lastSaved = useRef(0);
+  const saving = useRef(false);
   const hideTimer = useRef<number | undefined>(undefined);
   const [message, setMessage] = useState("Preparing playback…");
   const [needsPlan, setNeedsPlan] = useState(false);
@@ -40,13 +41,16 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
     const el = video.current;
     if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
     if (!force && Math.abs(el.currentTime - lastSaved.current) < SAVE_EVERY_SECONDS) return;
+    // One request at a time, except the final save on pause/exit which must not be dropped.
+    if (saving.current && !force) return;
     lastSaved.current = el.currentTime;
+    saving.current = true;
     void fetch(`/api/backend/library/progress/${assetId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       keepalive: true,
-      body: JSON.stringify({ progressSeconds: Math.floor(el.currentTime), durationSeconds: Math.floor(el.duration), episodeKey }),
-    });
+      body: JSON.stringify({ progressSeconds: Math.floor(el.currentTime), durationSeconds: Math.max(1, Math.floor(el.duration)), episodeKey }),
+    }).catch(() => undefined).finally(() => { saving.current = false; });
   }, [assetId, episodeKey]);
 
   useEffect(() => {

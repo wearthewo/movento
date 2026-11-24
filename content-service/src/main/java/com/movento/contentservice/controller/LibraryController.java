@@ -4,7 +4,6 @@ import com.movento.contentservice.catalog.CatalogService;
 import com.movento.contentservice.catalog.MaturityPolicy;
 import com.movento.contentservice.dto.CatalogTitleResponse;
 import com.movento.contentservice.model.PlaybackProgress;
-import com.movento.contentservice.model.WatchlistItem;
 import com.movento.contentservice.repository.ContentRepository;
 import com.movento.contentservice.repository.PlaybackProgressRepository;
 import com.movento.contentservice.repository.WatchlistRepository;
@@ -74,12 +73,8 @@ public class LibraryController {
     @PutMapping("/watchlist/{contentId}")
     @Transactional
     public ResponseEntity<Void> add(@RequestHeader(PROFILE) UUID profileId, @PathVariable Long contentId) {
-        if (watchlist.findByProfileIdAndContentId(profileId, contentId).isEmpty()) {
-            WatchlistItem item = new WatchlistItem();
-            item.setProfileId(profileId);
-            item.setContent(content.findById(contentId).orElseThrow());
-            watchlist.save(item);
-        }
+        if (!content.existsById(contentId)) throw new java.util.NoSuchElementException("content " + contentId);
+        watchlist.addIfAbsent(profileId, contentId);
         return ResponseEntity.noContent().build();
     }
 
@@ -123,17 +118,11 @@ public class LibraryController {
     @Transactional
     public ResponseEntity<Void> update(@RequestHeader(PROFILE) UUID profileId, @PathVariable Long contentId,
                                        @Valid @RequestBody ProgressRequest request) {
+        if (!content.existsById(contentId)) throw new java.util.NoSuchElementException("content " + contentId);
         String episode = request.episodeKey() == null ? "" : request.episodeKey();
-        PlaybackProgress item = progress.findByProfileIdAndContentIdAndEpisodeKey(profileId, contentId, episode)
-                .orElseGet(PlaybackProgress::new);
-        item.setProfileId(profileId);
-        item.setContent(content.findById(contentId).orElseThrow());
-        item.setEpisodeKey(episode);
-        item.setDurationSeconds(request.durationSeconds());
-        item.setProgressSeconds(Math.min(request.progressSeconds(), request.durationSeconds()));
-        item.setCompleted(item.getProgressSeconds() >= (int) (item.getDurationSeconds() * COMPLETED_RATIO));
-        item.setUpdatedAt(Instant.now());
-        progress.save(item);
+        int duration = request.durationSeconds();
+        int position = Math.min(request.progressSeconds(), duration);
+        progress.upsert(profileId, contentId, episode, position, duration, position >= (int) (duration * COMPLETED_RATIO));
         return ResponseEntity.noContent().build();
     }
 }

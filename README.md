@@ -226,7 +226,7 @@ movento/
 ├── api-gateway/             Spring Cloud Gateway: auth filter, header sanitizer, rate limiting
 ├── service-registry/        Eureka server
 ├── user-service/            accounts, profiles, tokens, lockout, email flows (Flyway V1–V4)
-├── content-service/         catalog, episodes, library, caching (Flyway V1–V9)
+├── content-service/         catalog, episodes, library, caching (Flyway V1–V10)
 ├── streaming-service/       playback sessions, entitlement check, signed media URLs
 ├── payment-service/         plans, test-mode billing, Stripe webhooks
 ├── recommendation-service/  recommendations
