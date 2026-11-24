@@ -29,7 +29,7 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
 
     /** Whole active catalog with genres in one query; the home feed groups it in memory. */
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "genres")
-    List<Content> findAllByActiveTrueOrderByCreatedAtDesc();
+    List<Content> findAllByActiveTrueOrderByCreatedAtDesc(Pageable pageable);
     Page<Content> findByActiveTrue(Pageable pageable);
     Page<Content> findByActiveTrueAndTitleContainingIgnoreCase(String query, Pageable pageable);
     List<Content> findTop12ByActiveTrueAndTrendingTrueOrderByCreatedAtDesc();

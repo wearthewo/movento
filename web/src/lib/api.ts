@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { demoFeed, demoTitles } from "./demo-data";
 import { ACCESS_COOKIE, gatewayUrl } from "./session";
-import type { ContinueWatchingItem, HomeFeed, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
+import type { ContinueWatchingItem, CurrentUser, HomeFeed, PaymentRecord, Plan, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 
@@ -112,5 +112,17 @@ export async function getProfiles(): Promise<ViewerProfile[]> {
 
 export async function getSubscription(): Promise<SubscriptionState> {
   try { return await gatewayFetch("/api/v1/billing/subscription"); }
-  catch { return { status: "UNAVAILABLE", planId: "movento-monthly" }; }
+  catch { return { status: "UNAVAILABLE" }; }
+}
+
+export async function getPlans(): Promise<{ plans: Plan[]; testMode: boolean }> {
+  try { return await gatewayFetch("/api/v1/billing/plans"); } catch { return { plans: [], testMode: true }; }
+}
+
+export async function getPayments(): Promise<PaymentRecord[]> {
+  try { return await gatewayFetch("/api/v1/billing/payments"); } catch { return []; }
+}
+
+export async function getCurrentUser(): Promise<CurrentUser | undefined> {
+  try { return await gatewayFetch("/api/v1/users/me"); } catch { return undefined; }
 }

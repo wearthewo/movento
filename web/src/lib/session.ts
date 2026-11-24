@@ -60,3 +60,16 @@ export function secondsUntilExpiry(token?: string): number {
     return -1;
   }
 }
+
+/**
+ * Browser IP for gateway rate limiting. Behind Caddy the real client is the last X-Forwarded-For hop
+ * (the one Caddy appended); locally there is no proxy, so fall back to a fixed key.
+ */
+export function clientIp(headers: Headers): string {
+  const forwarded = headers.get("x-forwarded-for");
+  if (forwarded) {
+    const hops = forwarded.split(",").map((hop) => hop.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return headers.get("x-real-ip") ?? "127.0.0.1";
+}

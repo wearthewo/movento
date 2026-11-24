@@ -71,14 +71,36 @@ export interface ViewerProfile {
   maturityLevel: string;
 }
 
+export interface Plan {
+  id: string;
+  name: string;
+  monthlyPrice: number;
+  currency: string;
+  videoQuality: string;
+  maxStreams: number;
+  features: string[];
+}
+
 export interface SubscriptionState {
-  userId?: number;
-  stripeCustomerId?: string | null;
-  stripeSubscriptionId?: string | null;
   planId?: string | null;
-  status?: string | null;
+  planName?: string | null;
+  status: string;
   currentPeriodEnd?: string | null;
   cancelAtPeriodEnd?: boolean;
+  active?: boolean;
+  maxStreams?: number;
+  videoQuality?: string | null;
+  testMode?: boolean;
+}
+
+export interface PaymentRecord {
+  id: string;
+  planId: string;
+  amount: number;
+  currency: string;
+  status: string;
+  description?: string | null;
+  createdAt?: string | null;
 }
 
 export interface CurrentUser {
@@ -86,4 +108,5 @@ export interface CurrentUser {
   email: string;
   firstName?: string | null;
   lastName?: string | null;
+  emailVerified?: boolean;
 }

@@ -70,6 +70,14 @@ services:
     volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
     healthcheck: {test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "ping"], interval: 15s, timeout: 15s, retries: 12, start_period: 120s}
 
+  # Local email inbox: verification and password-reset emails land here (UI: http://localhost:8025).
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    logging: *logging
+    ports: ["127.0.0.1:8025:8025"]
+    healthcheck: {test: ["CMD", "wget", "-qO-", "http://localhost:8025/livez"], interval: 10s, timeout: 5s, retries: 12}
+
   service-registry:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/service-registry:${IMAGE_TAG:-local}
@@ -82,8 +90,8 @@ services:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/user-service:${IMAGE_TAG:-local}
     build: {<<: *java-build, args: {SERVICE: user-service}}
-    environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"}
-    depends_on: {postgres: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@movento.local}", ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin123!local}", MAIL_HOST: mailpit, MAIL_PORT: 1025, WEB_URL: "${WEB_URL:-http://localhost:3000}"}
+    depends_on: {postgres: {condition: service_healthy}, mailpit: {condition: service_started}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
 
   content-service:
@@ -98,7 +106,7 @@ services:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/streaming-service:${IMAGE_TAG:-local}
     build: {<<: *java-build, args: {SERVICE: streaming-service}}
-    environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}"}
+    environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}", MEDIA_SIGNING_SECRET: "${MEDIA_SIGNING_SECRET:-local-media-signing-secret-change-me}", PLAYBACK_REQUIRE_SUBSCRIPTION: "${PLAYBACK_REQUIRE_SUBSCRIPTION:-true}"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
 

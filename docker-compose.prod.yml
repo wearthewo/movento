@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Requires Docker Compose v2.24+ (for !reset).
+# Requires Docker Compose v2.24.4+ (for !reset / !override).
 
 x-prod-env: &prod-env
   SPRING_PROFILES_ACTIVE: prod
@@ -13,6 +13,8 @@ x-prod-env: &prod-env
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
 
 services:
+  mailpit:
+    profiles: ["dev-only"]   # not started in production
   postgres:
     ports: !reset []
     environment: {POSTGRES_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD}"}
@@ -33,12 +35,22 @@ services:
       <<: *prod-env
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 random bytes}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      WEB_URL: https://${DOMAIN:?set DOMAIN}
+      # Real SMTP provider instead of Mailpit
+      MAIL_HOST: ${MAIL_HOST:?set MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+    depends_on: !override {postgres: {condition: service_healthy}, service-registry: {condition: service_healthy}}
   content-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/content-service:${IMAGE_TAG:-latest}
     environment: *prod-env
   streaming-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/streaming-service:${IMAGE_TAG:-latest}
-    environment: *prod-env
+    environment:
+      <<: *prod-env
+      MEDIA_SIGNING_SECRET: ${MEDIA_SIGNING_SECRET:?set MEDIA_SIGNING_SECRET}
   recommendation-service:
     image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/recommendation-service:${IMAGE_TAG:-latest}
     environment: *prod-env

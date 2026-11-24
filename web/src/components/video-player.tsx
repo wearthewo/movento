@@ -31,6 +31,7 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
   const lastSaved = useRef(0);
   const hideTimer = useRef<number | undefined>(undefined);
   const [message, setMessage] = useState("Preparing playback…");
+  const [needsPlan, setNeedsPlan] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [showNext, setShowNext] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -57,7 +58,8 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
       const payload = await response.json().catch(() => ({}));
       if (cancelled) return;
       if (!response.ok) {
-        setMessage(response.status === 401 ? "Sign in to start playback." : response.status === 402 ? "An active subscription is required to watch." : "Playback is temporarily unavailable.");
+        if (response.status === 402) setNeedsPlan(true);
+        setMessage(payload.message ?? (response.status === 401 ? "Sign in to start playback." : response.status === 429 ? "Too many playback requests. Please wait a moment." : "Playback is temporarily unavailable."));
         return;
       }
       const el = video.current;
@@ -149,8 +151,9 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
 
     {message && <div className="absolute inset-0 grid place-items-center bg-black/85 px-5 text-center">
       <div>
-        <p className="text-white/80">{message}</p>
-        <Link href={backHref} className="mt-4 inline-block text-sm underline">Back</Link>
+        <p className="text-lg text-white/85">{message}</p>
+        {needsPlan && <Link href="/account#plans" className="mt-5 inline-block rounded bg-primary px-6 py-2.5 font-semibold">Choose a plan</Link>}
+        <Link href={backHref} className="mt-4 block text-sm underline">Back</Link>
       </div>
     </div>}
   </div>;

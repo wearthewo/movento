@@ -1,52 +1,74 @@
-import { BillingActions } from "@/components/billing-actions";
+import { CheckCircle2, MailWarning } from "lucide-react";
+import { ResendVerificationButton } from "@/components/account-forms";
+import { PlanPicker, SubscriptionActions } from "@/components/billing-actions";
 import { SignInRequired } from "@/components/sign-in-required";
-import { getSubscription } from "@/lib/api";
-import Link from "next/link";
-import { cookies } from "next/headers";
+import { getCurrentUser, getPayments, getPlans, getSubscription, isSignedIn } from "@/lib/api";
 
 export const metadata = { title: "Account" };
 
-export default async function Account({ searchParams }: { searchParams?: Promise<{ billing?: string }> }) {
-  if (!(await cookies()).get("movento_access")?.value) return <SignInRequired feature="Account and billing" />;
-  const params = await searchParams;
-  const subscription = await getSubscription();
-  const status = subscription.status ?? "INACTIVE";
-  const hasCustomer = Boolean(subscription.stripeCustomerId);
-  const isGuest = status === "UNAVAILABLE";
-  const billingState = params?.billing;
-  const billingMessage = billingState === "demo"
-    ? "Stripe checkout is not configured yet. Add STRIPE_SECRET_KEY and STRIPE_PRICE_ID to .env, then recreate payment-service."
-    : billingState === "success"
-      ? "Stripe checkout completed. If the status has not changed yet, send the Stripe webhook event to the local webhook endpoint."
-      : billingState === "cancelled"
-        ? "Stripe checkout was cancelled. You can start it again anytime."
-        : "";
+const MESSAGES: Record<string, string> = {
+  success: "Payment succeeded — your plan is active. Enjoy watching!",
+  declined: "The test payment was declined, so your plan did not change. Try again with “Approve”.",
+  cancelled: "Checkout was cancelled. You can choose a plan anytime.",
+};
 
-  return <main className="mx-auto max-w-4xl px-5 pb-20 pt-28">
+const money = (amount: number, currency: string) => new Intl.NumberFormat("en-IE", { style: "currency", currency }).format(amount);
+const date = (value?: string | null) => value ? new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—";
+
+export default async function Account({ searchParams }: { searchParams: Promise<{ billing?: string }> }) {
+  if (!(await isSignedIn())) return <SignInRequired feature="Account and billing" />;
+  const { billing } = await searchParams;
+  const [user, subscription, { plans, testMode }, payments] = await Promise.all([getCurrentUser(), getSubscription(), getPlans(), getPayments()]);
+  const message = billing ? MESSAGES[billing] : undefined;
+
+  return <main className="mx-auto max-w-5xl px-5 pb-24 pt-28">
     <h1 className="text-4xl font-black">Account</h1>
-    {billingMessage && <p role="status" className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-100">{billingMessage}</p>}
-    {isGuest && <div className="mt-5 rounded-xl border border-primary/40 bg-primary/10 p-4 text-sm text-white/75">
-      <p className="font-semibold text-white">You are browsing as a guest.</p>
-      <p className="mt-1">Guests can browse and search. Sign in to use billing, profiles, watchlist, playback, and progress.</p>
-      <Link href="/sign-in" className="mt-3 inline-flex rounded-full bg-primary px-4 py-2 font-semibold text-white transition hover:brightness-110">Sign in for member features</Link>
-    </div>}
-    <div className="mt-8 grid gap-5 md:grid-cols-2">
-      <section className="rounded-xl border bg-card p-6">
-        <p className="text-sm text-muted-foreground">Plan</p>
-        <h2 className="mt-2 text-2xl font-bold">Movento Standard</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Stripe test mode · monthly subscription checkout</p>
-        <div className="mt-4 rounded-lg border border-white/10 bg-black/25 p-3 text-sm">
-          <p>Status: <span className="font-semibold text-white">{status}</span></p>
-          <p className="mt-1 text-muted-foreground">Test card: <code>4242 4242 4242 4242</code>, any future expiry, any CVC.</p>
-          {!hasCustomer && !isGuest && <p className="mt-2 text-amber-200">If checkout opens a local demo URL, set <code>STRIPE_SECRET_KEY</code> and <code>STRIPE_PRICE_ID</code> in `.env`, then recreate payment-service.</p>}
+    {message && <p role="status" className={`mt-5 rounded-lg border p-4 text-sm ${billing === "success" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-100" : "border-amber-500/40 bg-amber-500/10 text-amber-100"}`}>{message}</p>}
+
+    {user && <section className="mt-8 rounded-xl border bg-card p-6">
+      <h2 className="text-sm uppercase tracking-[.2em] text-white/50">Membership</h2>
+      <p className="mt-3 text-lg font-semibold">{user.email}</p>
+      {user.emailVerified
+        ? <p className="mt-1 flex items-center gap-2 text-sm text-emerald-300"><CheckCircle2 className="size-4" />Email verified</p>
+        : <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-amber-200"><MailWarning className="size-4" />Email not verified yet. <ResendVerificationButton email={user.email} /></p>}
+    </section>}
+
+    <section className="mt-6 rounded-xl border bg-card p-6" aria-labelledby="plan-heading">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 id="plan-heading" className="text-sm uppercase tracking-[.2em] text-white/50">Plan</h2>
+          {subscription.active
+            ? <>
+                <p className="mt-3 text-2xl font-bold">{subscription.planName} <span className="text-base font-normal text-white/60">· {subscription.videoQuality} · {subscription.maxStreams} screen{subscription.maxStreams === 1 ? "" : "s"}</span></p>
+                <p className="mt-1 text-sm text-white/65">{subscription.cancelAtPeriodEnd ? `Cancelled — you can keep watching until ${date(subscription.currentPeriodEnd)}.` : `Next billing date: ${date(subscription.currentPeriodEnd)}`}</p>
+              </>
+            : <p className="mt-3 text-lg text-white/80">No active plan. Choose one below to start watching.</p>}
         </div>
-        <BillingActions hasCustomer={hasCustomer} />
-      </section>
-      <section className="rounded-xl border bg-card p-6">
-        <p className="text-sm text-muted-foreground">Playback</p>
-        <h2 className="mt-2 text-2xl font-bold">HD streaming</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Adaptive quality on all supported devices.</p>
-      </section>
-    </div>
+        {testMode && <span className="rounded border border-amber-400/50 bg-amber-400/10 px-2 py-1 text-xs font-bold uppercase tracking-wider text-amber-200">Test mode · no real money</span>}
+      </div>
+      {subscription.active && <SubscriptionActions cancelAtPeriodEnd={Boolean(subscription.cancelAtPeriodEnd)} testMode={testMode} />}
+    </section>
+
+    <section id="plans" className="mt-6" aria-labelledby="plans-heading">
+      <h2 id="plans-heading" className="mb-4 text-2xl font-bold">{subscription.active ? "Change plan" : "Choose your plan"}</h2>
+      <PlanPicker plans={plans} currentPlanId={subscription.active ? subscription.planId ?? undefined : undefined} testMode={testMode} />
+    </section>
+
+    <section className="mt-10" aria-labelledby="history-heading">
+      <h2 id="history-heading" className="mb-4 text-2xl font-bold">Payment history</h2>
+      {payments.length === 0
+        ? <p className="text-sm text-white/60">No payments yet.</p>
+        : <div className="overflow-hidden rounded-xl border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-card text-white/60"><tr><th className="p-3">Date</th><th className="p-3">Description</th><th className="p-3">Amount</th><th className="p-3">Status</th></tr></thead>
+              <tbody>{payments.map((payment) => <tr key={payment.id} className="border-t">
+                <td className="p-3 text-white/70">{date(payment.createdAt)}</td>
+                <td className="p-3">{payment.description}</td>
+                <td className="p-3">{money(payment.amount, payment.currency)}</td>
+                <td className="p-3"><span className={`rounded px-2 py-0.5 text-xs font-semibold ${payment.status === "SUCCEEDED" ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>{payment.status === "SUCCEEDED" ? "Paid" : "Declined"}</span></td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+    </section>
   </main>;
 }

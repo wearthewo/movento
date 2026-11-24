@@ -29,6 +29,15 @@ spring:
         - id: auth
           uri: lb://user-service
           predicates: [Path=/api/v1/auth/**]
+          filters:
+            # Brute-force protection: ~10 auth requests per minute per client IP (burst 10).
+            # user-service additionally locks an account after repeated wrong passwords.
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@clientIpKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 6
         - id: users
           uri: lb://user-service
           predicates: [Path=/api/v1/users/**]
@@ -49,7 +58,17 @@ spring:
         - id: playback
           uri: lb://streaming-service
           predicates: [Path=/api/v1/playback/**]
-          filters: [AuthenticationFilter]
+          filters:
+            - AuthenticationFilter
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@accountKeyResolver}"
+                redis-rate-limiter.replenishRate: 2
+                redis-rate-limiter.burstCapacity: 20
+        # Signed, expiring media URLs (like CDN signed URLs): the signature is the credential, no JWT needed.
+        - id: media
+          uri: lb://streaming-service
+          predicates: [Path=/api/v1/media/**]
         - id: recommendations
           uri: lb://recommendation-service
           predicates: [Path=/api/v1/recommendations/**]

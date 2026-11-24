@@ -33,8 +33,23 @@ public class CatalogService {
     private static final int RAIL_SIZE = 20;
     private static final int MIN_GENRE_RAIL = 3;
 
+    private static final java.time.Duration HOME_TTL = java.time.Duration.ofSeconds(60);
+    private static final int CATALOG_SCAN_LIMIT = 500;
+
     private final ContentRepository content;
     private final JdbcTemplate jdbc;
+
+    /**
+     * The home feed is the hottest read and identical for every viewer of a maturity level, so it is
+     * memoised for a minute per level and dropped whenever an admin changes the catalog.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<MaturityPolicy, CachedFeed> homeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record CachedFeed(HomeFeed feed, java.time.Instant expiresAt) {}
+
+    public void invalidate() {
+        homeCache.clear();
+    }
 
     public record Rail(String id, String title, String kind, List<CatalogTitleResponse> items) {}
     public record HomeFeed(CatalogTitleResponse featured, List<Rail> rails) {}
@@ -42,6 +57,14 @@ public class CatalogService {
     public record SeasonResponse(int seasonNumber, String title, List<EpisodeResponse> episodes) {}
 
     public HomeFeed home(MaturityPolicy policy) {
+        CachedFeed cached = homeCache.get(policy);
+        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.feed();
+        HomeFeed feed = buildHome(policy);
+        homeCache.put(policy, new CachedFeed(feed, java.time.Instant.now().plus(HOME_TTL)));
+        return feed;
+    }
+
+    private HomeFeed buildHome(MaturityPolicy policy) {
         List<Content> visible = visible(policy);
         if (visible.isEmpty()) throw new NoSuchElementException("Catalog is empty");
 
@@ -136,7 +159,7 @@ public class CatalogService {
     }
 
     private List<Content> visible(MaturityPolicy policy) {
-        return content.findAllByActiveTrueOrderByCreatedAtDesc().stream()
+        return content.findAllByActiveTrueOrderByCreatedAtDesc(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT)).stream()
                 .filter(c -> policy.allows(c.getContentRating()))
                 .toList();
     }

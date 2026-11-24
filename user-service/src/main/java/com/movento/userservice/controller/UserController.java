@@ -33,7 +33,7 @@ public class UserController {
             user.getPhoneNumber(),
             user.getProfilePictureUrl()
         );
-        
+        profile.setEmailVerified(user.isEmailVerified());
         return ResponseEntity.ok(profile);
     }
 

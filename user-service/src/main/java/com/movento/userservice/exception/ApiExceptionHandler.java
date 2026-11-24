@@ -1,5 +1,6 @@
 package com.movento.userservice.exception;
 
+import com.movento.userservice.account.AccountSecurityService;
 import com.movento.userservice.service.RefreshTokenService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +42,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(RefreshTokenService.InvalidRefreshTokenException.class)
     public ResponseEntity<Map<String, Object>> invalidRefresh(RefreshTokenService.InvalidRefreshTokenException ex) {
         return body(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
+    @ExceptionHandler(AccountSecurityService.AccountLockedException.class)
+    public ResponseEntity<Map<String, Object>> locked(AccountSecurityService.AccountLockedException ex) {
+        return body(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+    }
+
+    @ExceptionHandler(AccountSecurityService.InvalidAccountTokenException.class)
+    public ResponseEntity<Map<String, Object>> invalidLink(AccountSecurityService.InvalidAccountTokenException ex) {
+        return body(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @ExceptionHandler({NoSuchElementException.class, ResourceNotFoundException.class})

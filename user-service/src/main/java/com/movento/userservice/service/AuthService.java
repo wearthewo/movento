@@ -14,7 +14,9 @@ import com.movento.userservice.model.ViewerProfile;
 import com.movento.userservice.config.JwtUtils;
 import com.movento.userservice.security.UserDetailsImpl;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.movento.userservice.account.AccountSecurityService;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -53,13 +55,20 @@ public class AuthService {
     @Autowired
     private ViewerProfileRepository viewerProfiles;
 
-    @Value("${app.admin-email:}")
-    private String adminEmail;
+    @Autowired
+    private AccountSecurityService accountSecurity;
 
     public JwtResponse authenticateUser(LoginRequest loginRequest) {
-        Authentication authentication = authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(loginRequest.getEmail().trim().toLowerCase(), loginRequest.getPassword())
-        );
+        String email = loginRequest.getEmail().trim().toLowerCase();
+        accountSecurity.ensureNotLocked(email);
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, loginRequest.getPassword()));
+        } catch (BadCredentialsException badCredentials) {
+            accountSecurity.recordFailedLogin(email);
+            throw badCredentials;
+        }
+        accountSecurity.recordSuccessfulLogin(email);
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
@@ -81,7 +90,7 @@ public class AuthService {
      * Rotates the refresh token. When a profileId is supplied (and belongs to the account) the new
      * access token keeps the viewer-profile scope, so a silent refresh does not drop the selected profile.
      */
-    @Transactional
+    @Transactional(noRollbackFor = RefreshTokenService.InvalidRefreshTokenException.class)
     public JwtResponse refresh(String rawToken, java.util.UUID profileId) {
         RefreshTokenService.Rotation rotation = refreshTokens.rotate(rawToken);
         UserDetailsImpl details = UserDetailsImpl.build(rotation.user());
@@ -109,23 +118,16 @@ public class AuthService {
             signUpRequest.getLastName()
         );
 
+        // Public sign-up always creates a regular viewer; the admin account is bootstrapped from env (AdminBootstrap).
         Set<Role> roles = new HashSet<>();
-        
-        if (!adminEmail.isBlank() && normalizedEmail.equalsIgnoreCase(adminEmail)) {
-            Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN)
-                .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-            roles.add(adminRole);
-        } else {
-            Role userRole = roleRepository.findByName(ERole.ROLE_USER)
-                .orElseThrow(() -> new RuntimeException("Error: Role is not found."));
-            roles.add(userRole);
-        }
-
+        roles.add(roleRepository.findByName(ERole.ROLE_USER)
+            .orElseThrow(() -> new IllegalStateException("ROLE_USER is missing")));
         user.setRoles(roles);
         user = userRepository.save(user);
         ViewerProfile profile = new ViewerProfile();
         profile.setUser(user); profile.setName(signUpRequest.getFirstName().trim()); profile.setMaturityLevel("ADULT");
         viewerProfiles.save(profile);
+        accountSecurity.sendVerification(user);
         return authenticateUser(new LoginRequest(normalizedEmail, signUpRequest.getPassword()));
     }
 }

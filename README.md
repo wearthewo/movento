@@ -1,320 +1,272 @@
 # Movento
 
-Movento is a local-first Netflix-inspired streaming portfolio app. It runs with Docker Compose and includes a Next.js frontend, a Spring Cloud API gateway, Eureka service discovery, Spring Boot domain services, PostgreSQL, Redis, and RabbitMQ.
+A Netflix-style streaming platform built as a microservices system: a Next.js 16 frontend with a backend-for-frontend layer, a Spring Cloud API gateway, Eureka discovery, five Spring Boot domain services, PostgreSQL, Redis, RabbitMQ and a local mail inbox. Everything starts with one `docker compose` command.
 
-It runs locally with one command, and `docker-compose.prod.yml` turns the same stack into a single-server deployment behind Caddy (automatic HTTPS) using images that CI publishes to GHCR.
+[![CI](https://github.com/wearthewo/movento/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/wearthewo/movento/actions/workflows/ci-cd.yml)
 
-## Viewer Features
+> **Payments are simulated.** Movento runs in *test mode* by default: no card details are requested, no money moves, and every payment is stored with a `test_` ID.
 
-- **Who's watching?** gate with up to 5 profiles, add/delete profiles, and **kids profiles** that only see kids-rated titles (enforced server-side).
-- **Home**: full-bleed billboard, *Continue Watching* with progress bars, *Trending Now*, *Top 10 on Movento Today* (ranked numbers), *My List*, *New on Movento*, and genre rows; rows scroll with arrow buttons.
-- **Title page**: Play / Resume / *Play S1:E1*, My List toggle that remembers its state, season picker with episode list, and *More Like This*.
-- **Player**: full-screen HLS, resumes where you left off (per episode), saves progress every 10 s and on exit, *Next Episode* button with auto-play countdown, keyboard shortcuts (space/k, ←/→, f, Esc).
-- **Sessions** stay signed in: the Next.js proxy silently refreshes the 15-minute access token and keeps the selected profile.
+## Demo
 
-## System Architecture
+![Movento walkthrough](docs/media/demo.gif)
 
-Browser traffic goes to the Next.js app at `http://localhost:3000`. The Next.js app acts as a small backend-for-frontend for cookies and browser calls, then forwards API traffic to the public API gateway at `http://localhost:8080`.
+▶ **[Watch the full walkthrough with captions (2.5 min, MP4)](docs/media/movento-walkthrough.mp4)**: sign-up, profiles, the plan gate, test-mode checkout, browsing, My List, playback with resume and next episode, search, the kids profile, sign-out and password reset.
 
-The API gateway validates/forwards requests to private Spring services through Eureka. Domain services use PostgreSQL for durable state, Redis for cache/session-style support, and RabbitMQ for asynchronous events.
+| | |
+|---|---|
+| ![Home billboard and rows](docs/images/01-home.jpg) | ![Continue Watching](docs/images/02-rows.jpg) |
+| **Home:** billboard, Trending, Top 10, genre rows | **Continue Watching** with progress bars |
+| ![Title page with episodes](docs/images/03-title.jpg) | ![Player](docs/images/04-player.jpg) |
+| **Title page:** seasons, episodes, More Like This | **Player:** signed HLS stream, resume, next episode |
+| ![Who's watching](docs/images/05-profiles.jpg) | ![Plans](docs/images/06-plans.jpg) |
+| **Who's watching?** with up to 5 profiles, including kids | **Plans:** Basic / Standard / Premium (test mode) |
+| ![Account](docs/images/07-account.jpg) | ![Kids profile](docs/images/08-kids.jpg) |
+| **Account:** plan, cancel/resume, payment history | **Kids profile:** only kids-rated titles |
 
-```text
-Browser
-  -> web / Next.js 16 :3000
-    -> api-gateway :8080
-      -> service-registry / Eureka :8761
-      -> user-service :8081
-      -> payment-service :8082
-      -> streaming-service :8083
-      -> recommendation-service :8084
-      -> content-service :8085
-            -> PostgreSQL :5432
-            -> Redis :6379
-            -> RabbitMQ :5672 / management :15672
+<sub>The demo was recorded with generated artwork and a generated test stream.</sub>
+
+## Features
+
+**Viewing**
+- **Profiles:** a *Who's watching?* gate with up to 5 profiles per account, add and delete, and **kids profiles** whose catalog is filtered on the server by maturity rating (search and direct links included).
+- **Home:** a full-bleed billboard plus rows for *Continue Watching* (progress bars), *Trending Now*, *Top 10 on Movento Today* (ranked numbers), *My List*, *New on Movento*, movies, series and genres. Arrow buttons page through each row.
+- **Title page:** Play / Resume / *Play S1:E1* with the time left, a My List toggle that remembers its state, a season picker with an episode list, and *More Like This* (ranked by shared genres).
+- **Player:** full-screen HLS (hls.js) that resumes per episode, saves progress every 10 s and on exit, shows *Next Episode* with an auto-play countdown, and supports keyboard shortcuts (space/k, ←/→, f, Esc).
+- **Search, Movies and Series pages** with genre rows and an A–Z grid.
+
+**Account and billing**
+- Sign up, sign in, and silent session refresh (you stay signed in, keeping the same profile).
+- **Email verification and password reset** by email. Locally the emails land in Mailpit at http://localhost:8025.
+- **Plans** (Basic €7.99 / Standard €13.99 / Premium €19.99, display prices only) with test-mode checkout (*approve* or *simulate decline*), plan change, cancel and resume, and payment history.
+- Playback requires an active plan (HTTP 402 → *Choose a plan*).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser(["Browser"])
+
+    subgraph Edge["Web tier"]
+        Web["web · Next.js 16<br/>SSR pages + BFF route handlers<br/>httpOnly session cookies<br/>token refresh proxy"]
+    end
+
+    subgraph Platform["Spring Cloud platform"]
+        GW["api-gateway :8080<br/>JWT validation · identity headers<br/>Redis rate limiting · request IDs"]
+        REG["service-registry :8761<br/>Eureka"]
+        US["user-service :8081<br/>accounts · profiles · tokens<br/>lockout · email flows"]
+        CS["content-service :8085<br/>catalog · episodes · search<br/>My List · progress"]
+        SS["streaming-service :8083<br/>playback sessions<br/>signed media URLs"]
+        PS["payment-service :8082<br/>plans · test-mode billing<br/>Stripe webhooks"]
+        RS["recommendation-service :8084"]
+    end
+
+    subgraph Data["Infrastructure"]
+        PG[("PostgreSQL 16<br/>one database per service")]
+        RD[("Redis 7<br/>rate-limit buckets")]
+        MQ[["RabbitMQ<br/>domain events"]]
+        MP["Mailpit<br/>local SMTP inbox"]
+    end
+
+    Media[("HLS media origin")]
+
+    Browser -->|"HTTPS (cookies)"| Web
+    Browser -.->|"signed manifest → redirect"| Media
+    Web -->|"Bearer JWT + X-Forwarded-For"| GW
+    GW -->|"lb:// via Eureka"| US & CS & SS & PS & RS
+    GW -.->|"service discovery<br/>(all services register)"| REG
+    GW --> RD
+    SS -->|"entitlement check"| PS
+    US --> MP
+    US & CS & SS & PS & RS --> PG
+    SS & PS & RS --> MQ
 ```
 
-## Containers
+**How a request flows**
 
-`docker-compose.yml` starts eleven containers (every service has a healthcheck, restart policy, log rotation and memory limit; infrastructure ports bind to `127.0.0.1` only):
+1. The browser only talks to the **Next.js app**. Access and refresh tokens live in `httpOnly` cookies, and a request proxy silently refreshes the 15-minute access token while keeping the selected profile.
+2. The Next.js route handlers (`/api/backend/**`, `/api/auth/**`, `/api/media/**`) call the **gateway** with the token and the client IP.
+3. The **gateway** first strips any client-supplied identity headers. It then validates the JWT and adds trusted `X-Account-Id`, `X-Profile-Id`, `X-Profile-Maturity`, `X-User-Roles` and `X-Request-Id` headers. It rate-limits auth and playback in Redis and routes to services through **Eureka**.
+4. Each service owns its **own PostgreSQL database**, managed by Flyway migrations with Hibernate in `validate` mode.
 
-| Service | Purpose | Port |
+**Starting playback**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant W as Next.js BFF
+    participant G as API gateway
+    participant S as streaming-service
+    participant P as payment-service
+    participant O as Media origin
+    B->>W: POST /api/playback/{title}
+    W->>G: POST /api/v1/playback/{title}/session (JWT)
+    G->>S: + X-Account-Id, X-Profile-Id
+    S->>P: GET /internal/entitlements/{account}
+    P-->>S: { active: true, planId }
+    S-->>B: manifestUrl = /api/media/{session}/{title}/master.m3u8?exp=…&sig=HMAC
+    B->>W: GET signed manifest (hls.js)
+    W->>G: /api/v1/media/…
+    G->>S: verify HMAC + expiry + active session
+    S-->>B: 302 → origin manifest
+    B->>O: HLS segments
+    B->>W: PUT progress every 10 s (resume / Continue Watching)
+```
+
+### Services
+
+| Container | Responsibility | Port |
 |---|---|---:|
 | `web` | Next.js frontend and BFF route handlers | `3000` |
-| `api-gateway` | Public API entry point and routing | `8080` |
-| `service-registry` | Eureka discovery server | `8761` |
-| `user-service` | auth, accounts, viewer profiles, refresh tokens | internal `8081` |
-| `content-service` | catalog, search, watchlist, progress, admin catalog | internal `8085` |
-| `streaming-service` | playback sessions and demo HLS fallback | internal `8083` |
-| `recommendation-service` | recommendation API and event foundation | internal `8084` |
-| `payment-service` | Stripe test subscription foundation | internal `8082` |
-| `postgres` | local PostgreSQL databases | `5432` |
-| `redis` | cache/local state support | `6379` |
-| `rabbitmq` | events and management UI | `5672`, `15672` |
+| `api-gateway` | Single API entry point: auth, rate limits, routing | `127.0.0.1:8080` |
+| `service-registry` | Eureka discovery | `127.0.0.1:8761` |
+| `user-service` | Accounts, profiles, JWT/refresh tokens, lockout, email verification, password reset, admin bootstrap | internal `8081` |
+| `content-service` | Catalog, seasons/episodes, search, similar titles, My List, progress, Continue Watching, admin catalog | internal `8085` |
+| `streaming-service` | Playback sessions, entitlement check, signed media URLs | internal `8083` |
+| `payment-service` | Plans, test-mode billing, payment history, Stripe webhooks, internal entitlements | internal `8082` |
+| `recommendation-service` | Per-account recommendations (owner-only reads, admin writes) | internal `8084` |
+| `postgres` / `redis` / `rabbitmq` | Data, rate-limit buckets, events | `127.0.0.1` only |
+| `mailpit` | Local inbox for account emails | `127.0.0.1:8025` |
 
-## Local Commands
+Every container has a healthcheck, a restart policy, log rotation and a memory limit. Infrastructure ports bind to `127.0.0.1` only.
 
-Start everything:
+### Tech stack
 
-```powershell
-docker compose up --build
-```
-
-Start in the background:
-
-```powershell
-docker compose up -d --build
-```
-
-Check status:
-
-```powershell
-docker compose ps
-```
-
-Read logs:
-
-```powershell
-docker compose logs -f web
-docker compose logs -f api-gateway
-docker compose logs -f content-service
-```
-
-Stop containers but keep PostgreSQL, Redis, RabbitMQ, and web dependency volumes:
-
-```powershell
-docker compose down
-```
-
-Remove local volumes only when you want a fresh database/cache/message state:
-
-```powershell
-docker compose down -v
-```
-
-Health checks:
-
-```powershell
-Invoke-RestMethod http://localhost:8080/actuator/health
-Invoke-WebRequest http://localhost:3000
-```
-
-Open:
-
-- App: `http://localhost:3000`
-- Gateway health: `http://localhost:8080/actuator/health`
-- Eureka: `http://localhost:8761`
-- RabbitMQ UI: `http://localhost:15672` (`guest` / `guest` by default)
-
-## Build Commands
-
-Full local CI:
-
-```powershell
-.\scripts\local-ci.ps1
-```
-
-The local CI script creates an ignored Java truststore when a certificate is present in `.local-certs/`, then runs the backend reactor, frontend lint/type/build checks in Node 22, Compose validation, and all Docker image builds. This is the closest local equivalent of GitHub Actions.
-
-Backend single module:
-
-```powershell
-.\mvnw.cmd clean package -pl content-service -am -DskipTests
-```
-
-Frontend:
-
-```powershell
-cd web
-npm ci --no-audit --no-fund
-npm run lint
-npm run typecheck
-npm run build
-```
-
-All Spring services build from one shared, cache-friendly `docker/java-service.Dockerfile` (`--build-arg SERVICE=<module>`): BuildKit Maven cache, layered jars, non-root user, container-aware JVM memory. Compose builds them locally:
-
-```powershell
-docker compose build
-```
-
-Validate Compose syntax:
-
-```powershell
-docker compose config --quiet
-```
-
-## Local Certificate Note
-
-If Avast Web/Mail Shield or another antivirus intercepts HTTPS, Node inside Docker may fail with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. The web image imports optional PEM certificates from `.local-certs/` while it builds.
-
-The real certificate file and generated truststore are ignored by git. If your machine does not need them, leave only `.local-certs/.gitkeep` in place.
-
-## Catalog and Search
-
-`content-service` owns catalog data. Viewer endpoints live under:
-
-- `GET /api/v1/catalog/home`
-- `GET /api/v1/catalog/titles`
-- `GET /api/v1/catalog/titles?type=MOVIE`
-- `GET /api/v1/catalog/titles?type=SERIES`
-- `GET /api/v1/catalog/search?q=sci-fi`
-- `GET /api/v1/catalog/titles/{slug}`
-- `GET /api/v1/catalog/titles/{slug}/episodes`
-- `GET /api/v1/catalog/titles/{slug}/similar`
-- `GET /api/v1/catalog/titles?ids=1,2,3` / `?genre=Drama`
-
-Profile library (signed in, profile selected): `GET /api/v1/library/continue-watching`, `GET /api/v1/library/watchlist/titles`, `GET|PUT|DELETE /api/v1/library/watchlist/{id}`, `GET|PUT /api/v1/library/progress/{id}`.
-
-Search is PostgreSQL-backed for the local MVP. It searches title, synopsis, maturity rating, genre, and release year, then ranks exact/prefix title matches first, trending titles next, and newer titles after that.
-
-## Auth and Local Billing
-
-Auth is handled by `user-service` and proxied through Next.js route handlers:
-
-- Browser forms call `POST /api/auth/register` or `POST /api/auth/login`.
-- The Next.js route handler forwards to `api-gateway` and stores the real JWT pair in HTTP-only cookies.
-- Protected browser calls go through `/api/backend/**`, which attaches the access token to the gateway.
-- The gateway validates the JWT and injects trusted `X-Account-Id`, `X-User-Email`, `X-Profile-Id`, and role headers for internal services.
-
-Quick auth smoke test:
-
-```powershell
-$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$email = "local$(Get-Date -Format yyyyMMddHHmmss)@example.com"
-$body = @{firstName="Local";lastName="User";email=$email;password="Password123!"} | ConvertTo-Json
-Invoke-WebRequest -WebSession $session -Uri http://localhost:3000/api/auth/register -Method Post -ContentType application/json -Body $body
-Invoke-WebRequest -WebSession $session -Uri http://localhost:3000/api/backend/users/me
-```
-
-Stripe is local/test-mode only:
-
-- To open real Stripe Checkout, set `STRIPE_SECRET_KEY` and `STRIPE_PRICE_ID` in `.env`.
-- `STRIPE_PRICE_ID` must be a recurring subscription Price ID from Stripe test mode, usually starting with `price_`.
-- Recreate payment-service after changing Stripe env vars:
-
-```powershell
-docker compose up -d --build payment-service
-```
-
-- Test card: `4242 4242 4242 4242`, any future expiry, any CVC.
-- If `STRIPE_PRICE_ID` is blank, checkout intentionally returns `http://localhost:3000/account?billing=demo` and the Account page shows setup guidance instead of silently failing.
-- Subscription status changes only after Stripe webhooks are delivered to `POST /api/v1/webhooks/stripe` with a valid Stripe signature.
-
-## Frontend Request Performance
-
-The web app runs as a standalone production build on `node:22-alpine`. To keep local requests responsive:
-
-- Public catalog reads use unauthenticated gateway fetches with short Next.js revalidation.
-- Protected calls still use `cache: no-store` because they depend on the signed-in user.
-- Dependencies, lint, typechecking, and `next build` run while the image is built; the container starts the precompiled application with `node server.js`.
-- After changing frontend source, rebuild it with `docker compose up -d --build web`.
-- Next BFF route handlers log a warning for backend calls slower than one second.
-
-If the first request after `docker compose up` feels slow, wait for Eureka registration and Spring warmup:
-
-```powershell
-docker compose ps
-docker compose logs -f api-gateway content-service user-service
-```
-
-## Flyway Migrations
-
-Content service migrations:
-
-| Migration | Purpose |
+| Layer | Technology |
 |---|---|
-| `V1__Initial_schema.sql` | Base genres, content, movies, TV shows, seasons, episodes, ratings, view history |
-| `V2__catalog_mvp.sql` | Slugs, featured/trending flags, language, content discriminator, media assets, trigram title index |
-| `V3__profile_library.sql` | Profile-scoped watchlist and playback progress |
-| `V4__demo_catalog.sql` | First demo movies and genre links |
-| `V5__base_entity_columns.sql` | Adds optimistic-lock `version` columns expected by Java entities |
-| `V6__view_history_entity_alignment.sql` | Aligns view history fields with the Java entity |
-| `V7__view_history_user_id_bigint.sql` | Converts view history user IDs back to numeric IDs |
-| `V8__expanded_demo_catalog.sql` | Adds more movies, series, genres, and genre links |
-| `V9__episodes_and_library_indexes.sql` | Seeds seasons/episodes for demo series; indexes for Continue Watching and My List |
+| Frontend | Next.js 16 (App Router, standalone output), React 19, TypeScript, Tailwind CSS 4, hls.js |
+| Gateway | Spring Cloud Gateway (WebFlux), Redis rate limiter, JJWT |
+| Services | Java 17, Spring Boot 3.2, Spring Data JPA, Spring Security (user-service), Flyway |
+| Infrastructure | PostgreSQL 16, Redis 7, RabbitMQ 3.13, Eureka, Mailpit |
+| Delivery | Docker (BuildKit cache, layered jars, non-root), Docker Compose, GitHub Actions, GHCR |
 
-User service migrations include the base user schema, viewer profiles/normalized email, and refresh tokens. Payment service migrations include payment/subscription tables and webhook event tracking.
+## Run it locally
 
-## Java Service Notes
-
-The root Maven build is the canonical backend build. Each Spring Boot service is a Maven module using Java 17 and Spring Boot 3/Jakarta APIs.
-
-Important packages:
-
-- `controller`: public HTTP endpoints.
-- `service`: application logic and transaction boundaries.
-- `repository`: Spring Data JPA access.
-- `model`: JPA entities mapped to Flyway-managed SQL tables.
-- `dto`: request/response objects and mapper types.
-- `config`: local infrastructure settings such as RabbitMQ, Redis, Elasticsearch toggles, metrics, and security.
-
-The backend uses `spring.jpa.hibernate.ddl-auto=validate`, so Java entities must match Flyway SQL. If an entity and table drift apart, the service fails fast during startup instead of silently changing the database.
-
-## Frontend Notes
-
-The `web` app uses Next.js App Router, React 19, TypeScript, Tailwind CSS, and small UI primitives.
-
-Key paths:
-
-- `web/src/app/(app)/browse/page.tsx`: home/browse experience.
-- `web/src/app/(app)/search/page.tsx`: server-rendered search using the gateway.
-- `web/src/app/(app)/title/[slug]/page.tsx`: title detail page.
-- `web/src/components/title-card.tsx`: reusable poster card.
-- `web/src/components/content-rail.tsx`: horizontal content rails.
-- `web/src/lib/api.ts`: server-side gateway calls with demo fallback data.
-
-## GitHub Actions
-
-`.github/workflows/ci-cd.yml` validates the supported local stack:
-
-1. `backend`: runs `./mvnw --batch-mode verify`.
-2. `frontend`: runs `npm ci`, lint, typecheck, and build.
-3. `docker`: builds every backend service Docker image without pushing.
-4. `compose`: starts the stack, waits for readiness, checks routing and Eureka registration, and always cleans up.
-
-5. The `docker` job also publishes images to `ghcr.io/<owner>/movento/<service>` for pushes to the release branch / `main` and for `v*` tags (pull requests only build). The compose job additionally checks that spoofed identity headers are rejected and that the home feed and episodes respond.
-
-## Production Deployment (single server)
+You only need **Docker Desktop** (or Docker Engine with Compose v2).
 
 ```bash
-cp .env.example .env   # set DOMAIN, DB_PASSWORD, RABBITMQ_PASSWORD, JWT_SECRET, ADMIN_EMAIL, STRIPE_*, IMAGE_TAG
-docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+git clone https://github.com/wearthewo/movento.git
+cd movento
+cp .env.example .env          # optional: the defaults work for local use
+docker compose up -d --build  # first build takes a few minutes
+docker compose ps             # wait until services show "healthy"
+```
+
+| Open | URL |
+|---|---|
+| App | http://localhost:3000 |
+| Mail inbox (verification and reset emails) | http://localhost:8025 |
+| Eureka dashboard | http://localhost:8761 |
+| RabbitMQ UI (`guest` / `guest`) | http://localhost:15672 |
+| Gateway health | http://localhost:8080/actuator/health |
+
+**Try it:** sign up → pick a profile → press Play (you'll be asked for a plan) → choose a plan and *approve the test payment* → watch, leave, and come back to *Continue Watching*.
+
+**Default admin** (local only, change it in `.env`): `admin@movento.local` / `Admin123!local`. It is created at startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`; signing up can never grant admin rights.
+
+Useful commands:
+
+```bash
+docker compose logs -f web api-gateway content-service   # follow logs
+docker compose up -d --build content-service              # rebuild one service
+docker compose down                                        # stop, keep data
+docker compose down -v                                     # stop and reset all data
+```
+
+## Test-mode payments
+
+- With `STRIPE_PRICE_ID` **empty** (the default), payment-service runs in **test mode**. Plans are activated with simulated payments: choose *Subscribe — approve test payment* or *Simulate declined payment*. There is no card form; payments are saved with `test_pi_…` IDs and a `TEST MODE — … (no real money)` description.
+- Subscriptions last 30 days. Cancelling keeps access until the period ends, and *Resume* undoes the cancellation.
+- Optional: to try real **Stripe Checkout in test mode**, set `STRIPE_SECRET_KEY` (`sk_test_…`), `STRIPE_PRICE_ID` (`price_…`) and `STRIPE_WEBHOOK_SECRET`, then deliver webhooks to `POST /api/v1/webhooks/stripe` (for example with `stripe listen`). Use the test card `4242 4242 4242 4242`.
+- Set `PLAYBACK_REQUIRE_SUBSCRIPTION=false` to allow playback without a plan.
+
+## Security
+
+| Concern | Protection |
+|---|---|
+| Identity spoofing | The gateway removes client-supplied `X-Account-Id`, `X-Profile-Id`, `X-Profile-Maturity`, `X-User-Email`, `X-User-Roles` and `X-Subscription-Status` on **every** route, then re-derives them from a verified JWT (issuer checked). |
+| Token theft | Tokens live only in `httpOnly`, `SameSite=Lax` cookies (`Secure` in production). Refresh tokens are stored hashed (SHA-256) and rotated on every use. **Reuse of an old token revokes every session** of the account, with a 30-second grace window for parallel requests. |
+| Password guessing | Redis rate limit on `/api/v1/auth/**` (≈10 requests per minute per client IP), plus an **account lockout** after 5 wrong passwords (15 minutes). |
+| Account recovery | Single-use, hashed email tokens (verification: 24 h; reset: 30 min). Responses never reveal whether an email is registered. A password reset signs out every device. |
+| Admin access | The admin account is bootstrapped from env vars only; public sign-up always creates a regular viewer. `/api/v1/admin/**` requires `ROLE_ADMIN` at the gateway. |
+| Authorization | Library data is scoped to the profile; recommendations and playback sessions check ownership; recommendation writes are admin-only. |
+| Content access | Kids profiles are filtered on the server (maturity claim in the JWT). Playback requires an active plan, checked service-to-service on an internal endpoint that the gateway never routes. |
+| Media links | Manifest URLs are **HMAC-SHA256 signed**, bound to session and title, and expire after 15 minutes (verified in constant time), much like CDN signed URLs. |
+| Exposure | Only the web app is published; infrastructure ports are bound to `127.0.0.1`. Actuator exposes health/info/metrics only (no env/heapdump). Logs never include cookies, auth headers or SQL bind values. Containers run as non-root. |
+
+Known limits of a local project: video segments come from a public test stream (no DRM), concurrent-screen limits are shown per plan but not enforced, and email-link scanners could consume a verification link early.
+
+## Performance
+
+- The **home feed** is built in one query (titles plus genres via an entity graph), then cached in memory per maturity level for 60 s and invalidated whenever an admin edits the catalog.
+- **Paging** on `GET /api/v1/catalog/titles?page=&size=` (with an `X-Total-Count` header); catalog scans are capped.
+- Indexes for the hot paths: Continue Watching, My List, active refresh tokens and account tokens.
+- Guests get Next.js-cached catalog pages (120 s revalidation); signed-in pages are rendered per profile.
+- Docker images: dependency layers are cached by BuildKit, Spring Boot jars are split into layers, and the JVM is container-aware (`MaxRAMPercentage=75`).
+
+## API overview
+
+All routes go through the gateway at `/api/v1`.
+
+| Area | Endpoints |
+|---|---|
+| Auth (public, rate limited) | `POST auth/register`, `auth/login`, `auth/refresh`, `auth/logout`, `auth/verify-email`, `auth/resend-verification`, `auth/forgot-password`, `auth/reset-password` |
+| Users | `GET users/me`, `GET/POST users/me/profiles`, `PUT/DELETE users/me/profiles/{id}`, `POST users/me/profiles/{id}/select` |
+| Catalog (optional auth) | `GET catalog/home`, `catalog/titles?type=&genre=&q=&ids=&page=&size=`, `catalog/search?q=`, `catalog/titles/{slug}`, `…/{slug}/episodes`, `…/{slug}/similar` |
+| Library (profile) | `GET library/continue-watching`, `GET library/watchlist/titles`, `GET/PUT/DELETE library/watchlist/{id}`, `GET/PUT library/progress/{id}` |
+| Playback | `POST playback/{titleId}/session`, `POST playback/sessions/{id}/complete`, `GET media/{session}/{title}/master.m3u8?exp=&sig=` |
+| Billing | `GET billing/plans`, `GET billing/subscription`, `GET billing/payments`, `POST billing/checkout`, `billing/change-plan`, `billing/cancel`, `billing/resume` |
+| Admin | `POST/PUT/DELETE admin/catalog/…`, `POST admin/catalog/{id}/publish` |
+
+## Project structure
+
+```text
+movento/
+├── web/                     Next.js app (pages, BFF route handlers, proxy.ts token refresh)
+├── api-gateway/             Spring Cloud Gateway: auth filter, header sanitizer, rate limiting
+├── service-registry/        Eureka server
+├── user-service/            accounts, profiles, tokens, lockout, email flows (Flyway V1–V4)
+├── content-service/         catalog, episodes, library, caching (Flyway V1–V9)
+├── streaming-service/       playback sessions, entitlement check, signed media URLs
+├── payment-service/         plans, test-mode billing, Stripe webhooks
+├── recommendation-service/  recommendations
+├── docker/                  shared Dockerfile for every Spring service
+├── docker-compose.yml       local stack
+├── docker-compose.prod.yml  optional single-server overlay (Caddy HTTPS, GHCR images)
+├── docs/                    screenshots and demo video
+└── .github/workflows/       CI/CD
+```
+
+## Development
+
+```bash
+./mvnw clean verify                               # all backend modules + tests
+./mvnw -pl content-service -am package -DskipTests
+
+cd web && npm ci && npm run lint && npm run typecheck && npm run build
+```
+
+On Windows, `scripts/local-ci.ps1` runs the same checks as CI. If antivirus HTTPS interception breaks Maven or npm inside Docker, put its root certificate (`.pem`) in `.local-certs/`; every image trusts certificates found there. They are git-ignored.
+
+## CI/CD (GitHub Actions)
+
+1. **backend:** `./mvnw verify` (unit tests include signed media URLs, the plan gate and refresh-token reuse).
+2. **frontend:** lint, typecheck, production build.
+3. **docker:** builds all 8 images with a GitHub Actions cache, and publishes them to `ghcr.io/<owner>/movento/<service>` on pushes to the release branch, to `main`, or on `v*` tags.
+4. **compose:** starts the full stack and smoke-tests it: routing, Eureka registration, spoofed headers rejected, home feed and episodes, **login rate limiting (429)**, **playback refused without a plan (402)**, test-mode checkout, then a signed manifest URL.
+
+## Optional: single-server deployment
+
+The project is meant to run locally from GitHub, but `docker-compose.prod.yml` shows how the same images would run on one server. It pulls images from GHCR, refuses to start without real secrets, publishes no internal ports, and puts Caddy (automatic HTTPS) in front, exposing only the web app and the Stripe webhook.
+
+```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-The overlay removes every published internal port, refuses to start without real secrets, sets secure cookies, and puts Caddy in front: only the web app and `POST /api/v1/webhooks/stripe` are exposed on 80/443.
-
-## Security Model
-
-- The gateway strips client-supplied `X-Account-Id`, `X-Profile-Id`, `X-Profile-Maturity`, `X-User-Email`, `X-User-Roles` and `X-Subscription-Status` on **every** route before re-deriving them from a verified JWT, and adds an `X-Request-Id`.
-- Catalog routes use optional authentication, so guests can browse while profile tokens get maturity filtering.
-- Recommendations and playback sessions check ownership; writes are admin-only.
-- Tokens live only in httpOnly cookies; the browser never sees them.
-
-`docker-compose-full.yml`, `nginx/`, and the old Prometheus/Grafana/Elasticsearch configuration are retained only as legacy reference material. They are not part of the supported local stack or CI and should not be used as a production deployment definition.
-
 ## Troubleshooting
 
-RabbitMQ cookie permission errors:
-
-```powershell
-docker volume rm movento_rabbitmq_data
-docker compose up -d rabbitmq
-```
-
-Do not remove PostgreSQL or Redis volumes unless you want to reset app data.
-
-Re-run only one service after code changes:
-
-```powershell
-docker compose up -d --build content-service
-```
-
-Check why a service exited:
-
-```powershell
-docker compose ps --all
-docker compose logs --tail=200 content-service
-```
-
-The production web container should start quickly. A frontend rebuild is slower because it performs a clean install, lint, typecheck, and production compilation before replacing the running container.
+- **The first request is slow:** services are still registering with Eureka. Run `docker compose ps` and wait for `healthy`.
+- **"Choose a plan" when pressing Play:** expected. Subscribe in test mode on the Account page, or set `PLAYBACK_REQUIRE_SUBSCRIPTION=false`.
+- **"Too many attempts":** the auth rate limit or account lockout was triggered. Wait a minute (lockout: 15 minutes), or reset your password.
+- **RabbitMQ cookie permission error:** `docker volume rm movento_rabbitmq_data && docker compose up -d rabbitmq`.
+- **A service exited:** `docker compose logs --tail=200 <service>`.

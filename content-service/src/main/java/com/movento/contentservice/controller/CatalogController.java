@@ -30,10 +30,17 @@ public class CatalogController {
                                              @RequestParam(required = false) String type,
                                              @RequestParam(required = false) String q,
                                              @RequestParam(required = false) String genre,
-                                             @RequestParam(required = false) List<Long> ids) {
+                                             @RequestParam(required = false) List<Long> ids,
+                                             @RequestParam(defaultValue = "0") int page,
+                                             @RequestParam(defaultValue = "100") int size,
+                                             jakarta.servlet.http.HttpServletResponse response) {
         MaturityPolicy policy = MaturityPolicy.fromHeader(maturity);
         if (ids != null && !ids.isEmpty()) return catalog.byIds(policy, ids.stream().limit(100).toList());
-        return catalog.titles(policy, type, q, genre);
+        List<CatalogTitleResponse> all = catalog.titles(policy, type, q, genre);
+        int pageSize = Math.max(1, Math.min(size, 100));
+        int from = Math.min(Math.max(page, 0) * pageSize, all.size());
+        response.setHeader("X-Total-Count", String.valueOf(all.size()));
+        return all.subList(from, Math.min(from + pageSize, all.size()));
     }
 
     @GetMapping("/search")

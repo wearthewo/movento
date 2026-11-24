@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { clientIp } from "@/lib/session";
 
 const gateway = process.env.GATEWAY_URL ?? "http://localhost:8080";
 
@@ -18,6 +19,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       method: request.method,
       headers: {
         Authorization: `Bearer ${token}`,
+        "X-Forwarded-For": clientIp(request.headers),
         "Content-Type": request.headers.get("content-type") ?? "application/json",
       },
       body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.text(),

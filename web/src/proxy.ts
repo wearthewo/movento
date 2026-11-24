@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  ACCESS_COOKIE, PROFILE_COOKIE, REFRESH_COOKIE, clearSessionCookies, gatewayUrl, secondsUntilExpiry, writeSessionCookies,
+  ACCESS_COOKIE, PROFILE_COOKIE, REFRESH_COOKIE, clearSessionCookies, clientIp, gatewayUrl, secondsUntilExpiry, writeSessionCookies,
 } from "@/lib/session";
 
 /** Pages that need a selected viewer profile, like Netflix's "Who's watching?" gate. */
@@ -24,7 +24,7 @@ export async function proxy(request: NextRequest) {
     try {
       const upstream = await fetch(`${gatewayUrl()}/api/v1/auth/refresh`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": clientIp(request.headers) },
         body: JSON.stringify({ refreshToken: refresh, profileId: profileId && profileId !== "demo" ? profileId : undefined }),
         cache: "no-store",
         signal: AbortSignal.timeout(5000),
@@ -63,5 +63,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|api/auth|api/health|icon.svg|favicon.ico|robots.txt|sitemap.xml).*)"],
+  matcher: ["/((?!_next/static|_next/image|api/auth|api/health|api/media|icon.svg|favicon.ico|robots.txt|sitemap.xml).*)"],
 };
