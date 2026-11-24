@@ -26,7 +26,7 @@ export default async function Details({ params }: { params: Promise<{ slug: stri
   const playEpisode = resume ? progress.episodeKey || undefined : seasons[0]?.episodes[0]?.id;
 
   return <main className="min-h-screen pb-24">
-    <section className="relative flex min-h-[78vh] items-end pb-12 pt-28">
+    <section className="relative isolate flex min-h-[78vh] items-end pb-12 pt-28">
       <Image src={item.backdropUrl} alt="" fill priority sizes="100vw" className="-z-20 object-cover" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black via-black/70 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 -z-10 h-2/3 bg-gradient-to-t from-[#0b0b0b] to-transparent" />

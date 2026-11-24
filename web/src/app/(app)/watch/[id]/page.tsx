@@ -26,7 +26,9 @@ export default async function WatchPage({ params, searchParams }: { params: Prom
   const startAt = progress && !progress.completed && progress.episodeKey === episodeKey ? progress.progressSeconds : 0;
 
   return <main className="fixed inset-0 z-[60] bg-black">
+    {/* key: remount per episode so player state (countdown, resume point) never leaks between episodes */}
     <VideoPlayer
+      key={episodeKey || id}
       assetId={id}
       episodeKey={episodeKey}
       startAt={startAt}

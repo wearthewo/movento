@@ -26,7 +26,7 @@ export function ContentRail({ rail }: { rail: HomeRail }) {
   return (
     <section className="group/rail relative" aria-labelledby={`rail-${rail.id}`}>
       <h2 id={`rail-${rail.id}`} className="mb-2 px-5 text-lg font-bold md:px-12 md:text-xl">{rail.title}</h2>
-      <div ref={scroller} onScroll={onScroll} className="no-scrollbar flex snap-x gap-2 overflow-x-auto scroll-smooth px-5 py-3 md:gap-3 md:px-12">
+      <div ref={scroller} onScroll={onScroll} className="no-scrollbar flex snap-x scroll-px-5 gap-2 overflow-x-auto scroll-smooth px-5 py-3 md:scroll-px-12 md:gap-3 md:px-12">
         {rail.items.map((item, index) => (
           <div key={item.id} className={top10 ? "flex w-[78vw] flex-none snap-start items-end sm:w-[44vw] md:w-[31vw] lg:w-[24vw] xl:w-[21vw]" : "w-[66vw] flex-none snap-start sm:w-[40vw] md:w-[28vw] lg:w-[21vw] xl:w-[17.5vw]"}>
             {top10 && <span aria-hidden className="-mr-3 select-none text-[5.5rem] font-black leading-[.8] text-[#0b0b0b] [-webkit-text-stroke:3px_rgba(255,255,255,.55)] md:text-[7.5rem]">{index + 1}</span>}

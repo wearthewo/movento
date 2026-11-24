@@ -26,6 +26,8 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     });
     const elapsed = Date.now() - started;
     if (elapsed > 1000) console.warn(`[movento-web] slow backend request ${request.method} ${url.pathname} ${elapsed}ms`);
+    // 204/304 responses must not carry a body: `new Response("", {status: 204})` throws.
+    if ([204, 205, 304].includes(upstream.status)) return new NextResponse(null, { status: upstream.status });
     return new NextResponse(await upstream.text(), {
       status: upstream.status,
       headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" },
