@@ -88,6 +88,8 @@ eureka:
   client:
     serviceUrl:
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+    # Discover newly started services within ~5 s instead of the 30 s default.
+    registry-fetch-interval-seconds: 5
 management:
   endpoints.web.exposure.include: health,info,prometheus
   endpoint.health.show-details: never

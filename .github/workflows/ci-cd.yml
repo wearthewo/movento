@@ -142,10 +142,17 @@ jobs:
           codes=""; for i in $(seq 1 14); do codes="$codes $(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -H 'X-Forwarded-For: 203.0.113.7' -d '{"email":"nobody@example.com","password":"wrong-password"}' http://localhost:8080/api/v1/auth/login)"; done
           echo "login codes:$codes"; echo "$codes" | grep -q 429
           # Bootstrapped admin can sign in; playback without a plan is refused with 402.
-          token=$(curl --fail -s -H 'Content-Type: application/json' -d '{"email":"admin@movento.local","password":"Admin123!local"}' http://localhost:8080/api/v1/auth/login | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $token" http://localhost:8080/api/v1/playback/1/session)" = "402"
-          curl --fail -s -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"planId":"standard"}' http://localhost:8080/api/v1/billing/checkout
-          curl --fail -s -X POST -H "Authorization: Bearer $token" http://localhost:8080/api/v1/playback/1/session | python3 -c "import json,sys; assert '&sig=' in json.load(sys.stdin)['manifestUrl']"
+          token=$(curl --fail-with-body -s -H 'Content-Type: application/json' -d '{"email":"admin@movento.local","password":"Admin123!local"}' http://localhost:8080/api/v1/auth/login | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
+          # Services discover each other through Eureka caches, so give playback -> payments a moment after startup.
+          status=""
+          for attempt in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $token" http://localhost:8080/api/v1/playback/1/session)
+            [ "$status" = "402" ] && break
+            echo "playback without plan returned $status (attempt $attempt), retrying"; sleep 3
+          done
+          echo "playback without plan: $status"; test "$status" = "402"
+          curl --fail-with-body -s -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"planId":"standard"}' http://localhost:8080/api/v1/billing/checkout; echo
+          curl --fail-with-body -s -X POST -H "Authorization: Bearer $token" http://localhost:8080/api/v1/playback/1/session | python3 -c "import json,sys; body=json.load(sys.stdin); print('signed manifest:', body['manifestUrl']); assert '&sig=' in body['manifestUrl']"
       - name: Show diagnostics on failure
         if: failure()
         run: |
