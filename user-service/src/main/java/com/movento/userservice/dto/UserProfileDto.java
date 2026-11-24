@@ -10,6 +10,7 @@ public class UserProfileDto {
     private String lastName;
     private String phoneNumber;
     private String profilePictureUrl;
+    private boolean emailVerified;
 
     public UserProfileDto(Long id, String email, String firstName, String lastName, 
                          String phoneNumber, String profilePictureUrl) {

@@ -18,7 +18,7 @@ import java.util.Set;
 public class LoggingFilter implements GlobalFilter, Ordered {
 
     private static final Logger logger = LoggerFactory.getLogger(LoggingFilter.class);
-    private static final Set<String> SENSITIVE_HEADERS = Set.of("authorization", "proxy-authorization");
+    private static final Set<String> SENSITIVE_HEADERS = Set.of("authorization", "proxy-authorization", "cookie", "set-cookie", "stripe-signature");
     private static final String REQUEST_LOG_FORMAT = "Incoming request: {} {} - Headers: {}";
     private static final String RESPONSE_LOG_FORMAT = "Response for {} {} - Status: {}";
 

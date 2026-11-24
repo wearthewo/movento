@@ -1,4 +1,23 @@
 name: movento
+
+# Local development stack. For a server deployment layer docker-compose.prod.yml on top:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+x-java-build: &java-build
+  context: .
+  dockerfile: docker/java-service.Dockerfile
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+x-java-service: &java-service
+  restart: unless-stopped
+  logging: *logging
+  deploy:
+    resources:
+      limits: {memory: 1g}
+
 x-service-env: &service-env
   EUREKA_URL: http://service-registry:8761/eureka/
   EUREKA_HOST: service-registry
@@ -8,59 +27,122 @@ x-service-env: &service-env
   DB_PASSWORD: ${DB_PASSWORD:-postgres}
   REDIS_HOST: redis
   REDIS_PORT: 6379
+  # Spring Boot 3 reads spring.data.redis.*; several service configs still use the old spring.redis.* keys.
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: 6379
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_USER: ${RABBITMQ_USER:-guest}
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
 services:
   postgres:
     image: postgres:16-alpine
-    environment: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: "${DB_PASSWORD:-postgres}"}
-    ports: ["5432:5432"]
-    volumes: ["postgres_data:/var/lib/postgresql/data", "./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    # Bound to localhost only, on 15432 so it never clashes with a PostgreSQL already installed on your machine.
+    # Every published port can be changed in .env (POSTGRES_HOST_PORT, REDIS_HOST_PORT, ... WEB_HOST_PORT).
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
     healthcheck: {test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, timeout: 5s, retries: 12}
+
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    restart: unless-stopped
+    logging: *logging
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"]
     volumes: ["redis_data:/data"]
     healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 12}
+
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    environment: {RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-guest}", RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:-guest}"}
-    ports: ["5672:5672", "15672:15672"]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports: ["127.0.0.1:${RABBITMQ_HOST_PORT:-15673}:5672", "127.0.0.1:${RABBITMQ_UI_HOST_PORT:-15672}:15672"]
     volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
     healthcheck: {test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "ping"], interval: 15s, timeout: 15s, retries: 12, start_period: 120s}
+
+  # Local email inbox: verification and password-reset emails land here (UI: http://localhost:8025).
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    logging: *logging
+    ports: ["127.0.0.1:${MAILPIT_HOST_PORT:-8025}:8025"]
+    healthcheck: {test: ["CMD", "wget", "-qO-", "http://localhost:8025/livez"], interval: 10s, timeout: 5s, retries: 12}
+
   service-registry:
-    build: {context: ., dockerfile: service-registry/Dockerfile}
-    ports: ["8761:8761"]
-    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health"], interval: 10s, timeout: 5s, retries: 20}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/service-registry:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: service-registry}}
+    environment: {MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"}
+    ports: ["127.0.0.1:${EUREKA_HOST_PORT:-8761}:8761"]
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   user-service:
-    build: {context: ., dockerfile: user-service/Dockerfile}
-    environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"}
-    depends_on: {postgres: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/user-service:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: user-service}}
+    environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@movento.local}", ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin123!local}", MAIL_HOST: mailpit, MAIL_PORT: 1025, WEB_URL: "${WEB_URL:-http://localhost:3000}"}
+    depends_on: {postgres: {condition: service_healthy}, mailpit: {condition: service_started}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   content-service:
-    build: {context: ., dockerfile: content-service/Dockerfile}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/content-service:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: content-service}}
     environment: {<<: *service-env, DB_NAME: movento_content_db, USER_SERVICE_URL: "http://user-service:8081"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   streaming-service:
-    build: {context: ., dockerfile: streaming-service/Dockerfile}
-    environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}"}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/streaming-service:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: streaming-service}}
+    environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}", MEDIA_SIGNING_SECRET: "${MEDIA_SIGNING_SECRET:-local-media-signing-secret-change-me}", PLAYBACK_REQUIRE_SUBSCRIPTION: "${PLAYBACK_REQUIRE_SUBSCRIPTION:-true}"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   recommendation-service:
-    build: {context: ., dockerfile: recommendation-service/Dockerfile}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/recommendation-service:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: recommendation-service}}
     environment: {<<: *service-env, DB_NAME: movento_recommendation_db}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   payment-service:
-    build: {context: ., dockerfile: payment-service/Dockerfile}
-    environment: {<<: *service-env, DB_NAME: movento_payment_db, STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_placeholder}", STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}", STRIPE_PRICE_ID: "${STRIPE_PRICE_ID:-}", WEB_URL: "http://localhost:3000"}
-    depends_on: {postgres: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/payment-service:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: payment-service}}
+    environment: {<<: *service-env, DB_NAME: movento_payment_db, STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_placeholder}", STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}", STRIPE_PRICE_ID: "${STRIPE_PRICE_ID:-}", WEB_URL: "${WEB_URL:-http://localhost:3000}"}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   api-gateway:
-    build: {context: ., dockerfile: api-gateway/Dockerfile}
-    ports: ["8080:8080"]
+    <<: *java-service
+    image: ${IMAGE_REGISTRY:-movento}/api-gateway:${IMAGE_TAG:-local}
+    build: {<<: *java-build, args: {SERVICE: api-gateway}}
     environment: {EUREKA_URL: "http://service-registry:8761/eureka/", REDIS_HOST: redis, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"}
+    ports: ["127.0.0.1:${GATEWAY_HOST_PORT:-8080}:8080"]
     depends_on: {redis: {condition: service_healthy}, service-registry: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
+
   web:
+    image: ${IMAGE_REGISTRY:-movento}/web:${IMAGE_TAG:-local}
     build: {context: ., dockerfile: web/Dockerfile}
-    ports: ["3000:3000"]
-    environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "http://localhost:3000", COOKIE_SECURE: "false"}
-    depends_on: [api-gateway]
+    restart: unless-stopped
+    logging: *logging
+    ports: ["${WEB_HOST_PORT:-3000}:3000"]
+    environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:3000}", COOKIE_SECURE: "${COOKIE_SECURE:-false}"}
+    depends_on: {api-gateway: {condition: service_healthy}}
+
 volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}}

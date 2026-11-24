@@ -1,30 +1,11 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { LockKeyhole, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function PlaybackButton({ contentId, label = "Play" }: { contentId: string; label?: string }) {
-  const [signedIn, setSignedIn] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSignedIn(document.cookie.split("; ").some((cookie) => cookie === "movento_signed_in=1"));
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  if (!signedIn) {
-    return <div className="space-y-2">
-      <Button asChild variant="secondary">
-        <Link href="/sign-in"><LockKeyhole className="size-4" />Sign in to watch</Link>
-      </Button>
-      <p className="max-w-60 text-xs text-amber-200">Playback, progress, and subscriptions are member features.</p>
-    </div>;
-  }
-
-  return <Button asChild variant="secondary">
-    <Link href={`/watch/${contentId}`}><Play className="size-4 fill-current" />{label}</Link>
+/** Server-rendered so it knows the auth state up front (no flash of "Sign in to watch"). */
+export function PlaybackButton({ contentId, signedIn, label = "Play", episodeId }: { contentId: string; signedIn: boolean; label?: string; episodeId?: string }) {
+  const watch = `/watch/${contentId}${episodeId ? `?ep=${episodeId}` : ""}`;
+  return <Button asChild variant="secondary" className="px-6 text-base md:px-8">
+    <Link href={signedIn ? watch : `/sign-in?next=${encodeURIComponent(watch)}`}><Play className="size-5 fill-current" />{label}</Link>
   </Button>;
 }

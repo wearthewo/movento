@@ -1,6 +1,9 @@
 server:
   port: ${PORT:8080}
+  shutdown: graceful
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   application:
     name: api-gateway
   data:
@@ -10,6 +13,9 @@ spring:
       password: ${REDIS_PASSWORD:}
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: 3000
+        response-timeout: 30s
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
       globalcors:
@@ -23,6 +29,15 @@ spring:
         - id: auth
           uri: lb://user-service
           predicates: [Path=/api/v1/auth/**]
+          filters:
+            # Brute-force protection: ~10 auth requests per minute per client IP (burst 10).
+            # user-service additionally locks an account after repeated wrong passwords.
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@clientIpKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 6
         - id: users
           uri: lb://user-service
           predicates: [Path=/api/v1/users/**]
@@ -30,8 +45,8 @@ spring:
         - id: catalog
           uri: lb://content-service
           predicates: [Path=/api/v1/catalog/**]
-          filters:
-            - RewritePath=/api/v1/catalog/(?<segment>.*), /api/v1/catalog/$\{segment}
+          # Optional auth: anonymous browsing works, a profile token enables kids filtering.
+          filters: ["AuthenticationFilter=true"]
         - id: admin
           uri: lb://content-service
           predicates: [Path=/api/v1/admin/catalog/**]
@@ -43,7 +58,17 @@ spring:
         - id: playback
           uri: lb://streaming-service
           predicates: [Path=/api/v1/playback/**]
-          filters: [AuthenticationFilter]
+          filters:
+            - AuthenticationFilter
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@accountKeyResolver}"
+                redis-rate-limiter.replenishRate: 2
+                redis-rate-limiter.burstCapacity: 20
+        # Signed, expiring media URLs (like CDN signed URLs): the signature is the credential, no JWT needed.
+        - id: media
+          uri: lb://streaming-service
+          predicates: [Path=/api/v1/media/**]
         - id: recommendations
           uri: lb://recommendation-service
           predicates: [Path=/api/v1/recommendations/**]
@@ -65,6 +90,7 @@ eureka:
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
 management:
   endpoints.web.exposure.include: health,info,prometheus
-  endpoint.health.show-details: when-authorized
+  endpoint.health.show-details: never
+  endpoint.health.probes.enabled: true
 logging:
   pattern.console: '{"timestamp":"%d{ISO8601}","level":"%level","service":"api-gateway","message":"%replace(%msg){\"","\\\""}"}%n'

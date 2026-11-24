@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { ACCESS_COOKIE, gatewayUrl, writeProfileCookies, writeSessionCookies } from "@/lib/session";
+import type { ViewerProfile } from "@/lib/types";
 
+/** Exchanges the account token for a profile-scoped token (profile id + maturity claim). */
 export async function POST(request: Request) {
-  const { profileId } = await request.json();
-  if (!profileId) return NextResponse.json({ message: "Profile is required" }, { status: 400 });
+  const { profileId } = await request.json().catch(() => ({}));
+  if (typeof profileId !== "string" || !profileId) return NextResponse.json({ message: "Profile is required" }, { status: 400 });
+  const access = (await cookies()).get(ACCESS_COOKIE)?.value;
+  if (!access) return NextResponse.json({ message: "Please sign in again." }, { status: 401 });
+
+  const upstream = await fetch(`${gatewayUrl()}/api/v1/users/me/profiles/${encodeURIComponent(profileId)}/select`, {
+    method: "POST", headers: { Authorization: `Bearer ${access}` }, cache: "no-store",
+  }).catch(() => null);
+  if (!upstream?.ok) return NextResponse.json({ message: "Profile selection failed" }, { status: upstream?.status ?? 503 });
+
+  const payload = await upstream.json() as { accessToken: string; expiresIn?: number; profile?: ViewerProfile };
   const response = NextResponse.json({ selected: true });
-  const access = (await cookies()).get("movento_access")?.value;
-  if (access && access !== "demo") {
-    const upstream = await fetch(`${process.env.GATEWAY_URL ?? "http://localhost:8080"}/api/v1/users/me/profiles/${profileId}/select`, { method: "POST", headers: { Authorization: `Bearer ${access}` } });
-    if (!upstream.ok) return NextResponse.json({ message: "Profile selection failed" }, { status: upstream.status });
-    const payload = await upstream.json();
-    response.cookies.set("movento_access", payload.accessToken, { httpOnly: true, sameSite: "lax", secure: process.env.COOKIE_SECURE === "true", path: "/", maxAge: payload.expiresIn ?? 900 });
-  }
-  response.cookies.set("movento_profile", profileId, { httpOnly: true, sameSite: "lax", secure: process.env.COOKIE_SECURE === "true", path: "/", maxAge: 2592000 });
-  response.cookies.set("movento_signed_in", "1", { sameSite: "lax", secure: process.env.COOKIE_SECURE === "true", path: "/", maxAge: 2592000 });
+  writeSessionCookies(response.cookies, payload);
+  writeProfileCookies(response.cookies, payload.profile ?? { id: profileId, name: "Viewer", kidsMode: false });
   return response;
 }

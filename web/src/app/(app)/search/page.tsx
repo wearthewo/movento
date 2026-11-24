@@ -1,9 +1,12 @@
-import { Search } from "lucide-react";
+import Link from "next/link";
 import { TitleCard } from "@/components/title-card";
 import { searchTitles } from "@/lib/api";
 
+export const metadata = { title: "Search" };
+
 const quickSearches = ["sci-fi", "documentary", "thriller", "family", "2026"];
 
+/** Results for the header search box (it opens automatically on this page). */
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q = "" } = await searchParams;
   const query = q.trim();
@@ -11,36 +14,32 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 
   return (
     <main className="min-h-screen px-5 pb-20 pt-28 md:px-12">
-      <section className="max-w-3xl">
-        <p className="text-sm font-semibold uppercase tracking-[.22em] text-primary">Find your next watch</p>
-        <h1 className="mt-3 text-4xl font-black md:text-6xl">Search Movento</h1>
-        <form className="mt-8">
-          <label className="relative block">
-            <Search className="absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-            <input autoFocus name="q" defaultValue={query} placeholder="Titles, genres, years, ratings..." className="h-14 w-full rounded-md border bg-card pl-12 pr-4 text-lg outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/30" />
-          </label>
-        </form>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {quickSearches.map((term) => (
-            <a key={term} href={`/search?q=${encodeURIComponent(term)}`} className="rounded-full border px-3 py-1 text-sm text-muted-foreground transition hover:border-primary hover:text-white">
-              {term}
-            </a>
-          ))}
-        </div>
-      </section>
-
-      <div className="mt-10 flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{query ? `${results.length} result${results.length === 1 ? "" : "s"} for "${query}"` : "Browse the full local catalog"}</p>
+      <h1 className="text-2xl font-bold text-white/90 md:text-3xl">
+        {query ? <>Results for <span className="text-white">“{query}”</span></> : "Explore the catalog"}
+      </h1>
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-white/50">Try:</span>
+        {quickSearches.map((term) => (
+          <Link key={term} href={`/search?q=${encodeURIComponent(term)}`} replace scroll={false}
+            className="rounded-full border px-3 py-1 text-white/70 transition hover:border-primary hover:text-white">{term}</Link>
+        ))}
       </div>
 
       {results.length > 0 ? (
-        <div className="mt-5 grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
-          {results.map((item) => <TitleCard key={item.id} item={item} />)}
-        </div>
+        <>
+          <p className="mt-8 text-sm text-white/55">{results.length} title{results.length === 1 ? "" : "s"}</p>
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {results.map((item) => <TitleCard key={item.id} item={item} />)}
+          </div>
+        </>
       ) : (
-        <div className="mt-8 rounded-md border bg-card/60 p-8">
-          <h2 className="text-xl font-semibold">No matching titles</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Try a genre like sci-fi, mystery, documentary, action, family, or a release year.</p>
+        <div className="mt-10 max-w-lg text-white/70">
+          <p className="text-lg">Your search for “{query}” did not have any matches.</p>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-white/55">
+            <li>Try different keywords</li>
+            <li>Try a genre like sci-fi, mystery, documentary or family</li>
+            <li>Try a release year such as 2025</li>
+          </ul>
         </div>
       )}
     </main>

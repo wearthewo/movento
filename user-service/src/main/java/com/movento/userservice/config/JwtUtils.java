@@ -27,7 +27,7 @@ public class JwtUtils {
     private String issuer;
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(secret.getBytes());
+        return Keys.hmacShaKeyFor(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     public String extractUsername(String token) {
@@ -45,6 +45,7 @@ public class JwtUtils {
 
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
+                .requireIssuer(issuer)
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
@@ -58,6 +59,7 @@ public class JwtUtils {
     public boolean validateJwtToken(String authToken) {
         try {
             Jwts.parserBuilder()
+                .requireIssuer(issuer)
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(authToken);
@@ -68,15 +70,30 @@ public class JwtUtils {
     }
 
     public String generateToken(UserDetails userDetails) {
-        return generateToken(userDetails, null);
+        return generateToken(userDetails, (java.util.UUID) null);
     }
 
     public String generateToken(UserDetails userDetails, java.util.UUID profileId) {
+        return generateToken(userDetails, profileId, null);
+    }
+
+    /** Access token scoped to a viewer profile; the maturity claim lets the catalog filter kids profiles. */
+    public String generateToken(UserDetails userDetails, com.movento.userservice.model.ViewerProfile profile) {
+        return profile == null ? generateToken(userDetails, null, null)
+                : generateToken(userDetails, profile.getId(), profile.isKidsMode() ? "KIDS" : profile.getMaturityLevel());
+    }
+
+    private String generateToken(UserDetails userDetails, java.util.UUID profileId, String maturity) {
         Map<String, Object> claims = new HashMap<>();
         if (userDetails instanceof UserDetailsImpl details) claims.put("accountId", details.getId());
         claims.put("roles", userDetails.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList());
         if (profileId != null) claims.put("profileId", profileId.toString());
+        if (maturity != null) claims.put("maturity", maturity);
         return createToken(claims, userDetails.getUsername());
+    }
+
+    public long getExpirationSeconds() {
+        return jwtExpirationMs / 1000;
     }
 
     private String createToken(Map<String, Object> claims, String subject) {

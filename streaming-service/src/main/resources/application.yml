@@ -47,18 +47,21 @@ management:
         include: health,info
   endpoint:
     health:
-      show-details: always
+      show-details: never
 
 logging:
   level:
     root: INFO
-    com.movento: DEBUG
+    com.movento: ${APP_LOG_LEVEL:INFO}
 
 app:
   media:
     base-url: ${MEDIA_BASE_URL:https://test-streams.mux.dev/x36xhzz}
     default-manifest: ${MEDIA_DEFAULT_MANIFEST:x36xhzz.m3u8}
-    require-subscription: ${PLAYBACK_REQUIRE_SUBSCRIPTION:false}
+    require-subscription: ${PLAYBACK_REQUIRE_SUBSCRIPTION:true}
+    signing-secret: ${MEDIA_SIGNING_SECRET:local-media-signing-secret-change-me}
+    url-ttl-seconds: ${MEDIA_URL_TTL_SECONDS:900}
+  payment-service-url: ${PAYMENT_SERVICE_URL:http://payment-service}
   messaging:
     exchange: streaming.events
     routing-key: streaming.session

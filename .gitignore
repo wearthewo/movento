@@ -155,6 +155,8 @@ dist
 # Gatsby files
 .cache/
 public
+# ...but Next.js serves static assets from web/public
+!web/public/
 
 # Storybook build outputs
 .out
