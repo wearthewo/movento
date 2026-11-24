@@ -18,14 +18,14 @@ public class RateLimiterConfig {
     @Bean
     public KeyResolver userKeyResolver() {
         return exchange -> {
-            String userId = exchange.getRequest()
-                    .getHeaders()
-                    .getFirst("X-User-Id");
-
-            if (userId != null && !userId.isEmpty()) {
-                return Mono.just(userId);
+            // X-Account-Id is only trusted because TrustedHeaderSanitizerFilter strips client copies
+            // and AuthenticationFilter sets it from a verified token.
+            String accountId = exchange.getRequest().getHeaders().getFirst("X-Account-Id");
+            if (accountId != null && !accountId.isEmpty()) {
+                return Mono.just("account:" + accountId);
             }
-            return Mono.just(exchange.getRequest().getRemoteAddress().getAddress().getHostAddress());
+            var remote = exchange.getRequest().getRemoteAddress();
+            return Mono.just(remote == null || remote.getAddress() == null ? "anonymous" : "ip:" + remote.getAddress().getHostAddress());
         };
     }
 }

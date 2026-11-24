@@ -16,9 +16,11 @@ import java.util.UUID;
 import java.util.Map;
 import com.movento.userservice.config.JwtUtils;
 import com.movento.userservice.security.UserDetailsImpl;
+import com.movento.userservice.exception.ProfileRuleException;
 
 @RestController @RequestMapping("/api/v1/users/me/profiles") @RequiredArgsConstructor
 public class ViewerProfileController {
+    private static final int MAX_PROFILES = 5;
     private final ViewerProfileRepository profiles;
     private final UserRepository users;
     private final JwtUtils jwtUtils;
@@ -30,7 +32,7 @@ public class ViewerProfileController {
 
     @PostMapping @Transactional
     public ResponseEntity<ViewerProfileResponse> create(@RequestHeader("X-Account-Id") Long accountId, @Valid @RequestBody ViewerProfileRequest request) {
-        if (profiles.countByUserId(accountId) >= 5) return ResponseEntity.unprocessableEntity().build();
+        if (profiles.countByUserId(accountId) >= MAX_PROFILES) throw new ProfileRuleException("An account can have up to " + MAX_PROFILES + " profiles.");
         ViewerProfile profile = new ViewerProfile(); profile.setUser(users.findById(accountId).orElseThrow()); apply(profile, request);
         profile = profiles.save(profile);
         return ResponseEntity.created(URI.create("/api/v1/users/me/profiles/" + profile.getId())).body(response(profile));
@@ -43,14 +45,16 @@ public class ViewerProfileController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@RequestHeader("X-Account-Id") Long accountId, @PathVariable UUID id) {
+        if (profiles.countByUserId(accountId) <= 1) throw new ProfileRuleException("An account needs at least one profile.");
         ViewerProfile profile = profiles.findByIdAndUserId(id, accountId).orElseThrow(); profiles.delete(profile); return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/{id}/select")
+    @PostMapping("/{id}/select") @Transactional(readOnly = true)
     public Map<String, Object> select(@RequestHeader("X-Account-Id") Long accountId, @PathVariable UUID id) {
-        profiles.findByIdAndUserId(id, accountId).orElseThrow();
+        ViewerProfile profile = profiles.findByIdAndUserId(id, accountId).orElseThrow();
         UserDetailsImpl details = UserDetailsImpl.build(users.findById(accountId).orElseThrow());
-        return Map.of("accessToken", jwtUtils.generateToken(details, id), "expiresIn", 900);
+        return Map.of("accessToken", jwtUtils.generateToken(details, profile), "expiresIn", jwtUtils.getExpirationSeconds(),
+                "profile", response(profile));
     }
 
     private void apply(ViewerProfile p, ViewerProfileRequest r) { p.setName(r.name().trim()); p.setAvatarUrl(r.avatarUrl()); p.setKidsMode(r.kidsMode()); p.setMaturityLevel(r.kidsMode() ? "KIDS" : (r.maturityLevel() == null ? "ADULT" : r.maturityLevel())); }

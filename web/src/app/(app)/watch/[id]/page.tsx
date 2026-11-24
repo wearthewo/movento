@@ -1,35 +1,41 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { redirect } from "next/navigation";
 import { VideoPlayer } from "@/components/video-player";
-import { getTitles } from "@/lib/api";
+import { getEpisodes, getProgress, getTitleById, isSignedIn } from "@/lib/api";
 
-export default async function WatchPage({ params }: { params: Promise<{ id: string }> }) {
+export const metadata = { title: "Watch" };
+
+export default async function WatchPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ ep?: string }> }) {
   const { id } = await params;
-  const title = (await getTitles()).find((item) => item.id === id);
-  const signedIn = Boolean((await cookies()).get("movento_access")?.value);
+  const { ep } = await searchParams;
+  if (!(await isSignedIn())) redirect(`/sign-in?next=${encodeURIComponent(`/watch/${id}${ep ? `?ep=${ep}` : ""}`)}`);
 
-  if (!signedIn) {
-    return <main className="grid min-h-screen place-items-center bg-black px-5 text-center">
-      <div className="max-w-lg">
-        <p className="text-sm font-semibold uppercase tracking-[.25em] text-primary">Member feature</p>
-        <h1 className="mt-3 text-4xl font-black">Sign in to watch</h1>
-        <p className="mt-4 text-white/65">Guests can browse the catalog and open title details. Playback, resume progress, My List, and billing require a signed-in account.</p>
-        <div className="mt-7 flex justify-center gap-3">
-          <Button asChild><Link href="/sign-in">Sign in</Link></Button>
-          <Button asChild variant="outline"><Link href={title ? `/title/${title.slug}` : "/browse"}>Back to details</Link></Button>
-        </div>
-      </div>
+  const title = await getTitleById(id);
+  if (!title) {
+    return <main className="grid min-h-screen place-items-center bg-black text-center">
+      <div><h1 className="text-3xl font-bold">This title isn&apos;t available</h1><Link href="/browse" className="mt-4 inline-block underline">Back to browse</Link></div>
     </main>;
   }
 
-  return <main className="min-h-screen bg-black px-4 py-6 md:px-10">
-    <Link href={title ? `/title/${title.slug}` : "/browse"} className="mb-5 inline-flex items-center gap-2 text-sm text-white/70 hover:text-white"><ArrowLeft className="size-4" />Back</Link>
-    <VideoPlayer assetId={id} />
-    <div className="mx-auto mt-7 max-w-5xl">
-      <h1 className="text-2xl font-bold">{title?.title ?? "Movento presentation"}</h1>
-      <p className="mt-2 text-sm text-white/55">Demo playback uses a public HLS test stream until an R2 manifest is configured.</p>
-    </div>
+  const [seasons, progress] = await Promise.all([title.type === "SERIES" ? getEpisodes(title.slug) : Promise.resolve([]), getProgress(id)]);
+  const episodes = seasons.flatMap((season) => season.episodes.map((episode) => ({ ...episode, seasonNumber: season.seasonNumber })));
+  const index = ep ? episodes.findIndex((episode) => episode.id === ep) : 0;
+  const current = episodes[Math.max(index, 0)];
+  const next = current ? episodes[episodes.indexOf(current) + 1] : undefined;
+  const episodeKey = current?.id ?? "";
+  const startAt = progress && !progress.completed && progress.episodeKey === episodeKey ? progress.progressSeconds : 0;
+
+  return <main className="fixed inset-0 z-[60] bg-black">
+    <VideoPlayer
+      assetId={id}
+      episodeKey={episodeKey}
+      startAt={startAt}
+      poster={title.backdropUrl}
+      heading={title.title}
+      subheading={current ? `S${current.seasonNumber}:E${current.episodeNumber} “${current.title}”` : undefined}
+      backHref={`/title/${title.slug}`}
+      nextHref={next ? `/watch/${id}?ep=${next.id}` : undefined}
+      nextLabel={next ? `S${next.seasonNumber}:E${next.episodeNumber} · ${next.title}` : undefined}
+    />
   </main>;
 }

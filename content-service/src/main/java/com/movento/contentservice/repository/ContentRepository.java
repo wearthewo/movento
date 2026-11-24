@@ -24,7 +24,12 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
     @Query("SELECT c FROM Content c LEFT JOIN c.ratings r GROUP BY c ORDER BY AVG(r.rating) DESC")
     Page<Content> findAllOrderByAverageRatingDesc(Pageable pageable);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "genres")
     Optional<Content> findBySlugAndActiveTrue(String slug);
+
+    /** Whole active catalog with genres in one query; the home feed groups it in memory. */
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "genres")
+    List<Content> findAllByActiveTrueOrderByCreatedAtDesc();
     Page<Content> findByActiveTrue(Pageable pageable);
     Page<Content> findByActiveTrueAndTitleContainingIgnoreCase(String query, Pageable pageable);
     List<Content> findTop12ByActiveTrueAndTrendingTrueOrderByCreatedAtDesc();
@@ -55,7 +60,7 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
         """)
     List<Content> searchCatalog(@Param("query") String query, Pageable pageable);
     
-    @Query("SELECT c FROM Content c WHERE c.id IN :ids")
+    @Query("SELECT DISTINCT c FROM Content c LEFT JOIN FETCH c.genres WHERE c.id IN :ids")
     List<Content> findByIds(@Param("ids") List<Long> ids);
     
     @Query("SELECT c FROM Content c WHERE c.id = :id AND TYPE(c) = :contentType")

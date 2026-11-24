@@ -1,5 +1,6 @@
 server:
   port: ${PORT:8081}
+  shutdown: graceful
 
 spring:
   application:
@@ -20,10 +21,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: ${SHOW_SQL:false}
+    open-in-view: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         dialect: org.hibernate.dialect.PostgreSQLDialect
   
   # Flyway Configuration
@@ -43,7 +45,7 @@ spring:
   security:
     jwt:
       secret: ${JWT_SECRET:your-secret-key-for-jwt-please-change-in-production}
-      expiration-ms: 900000
+      expiration-ms: ${JWT_EXPIRATION_MS:900000}
       issuer: ${JWT_ISSUER:movento}
 
 # Eureka Client Configuration
@@ -62,14 +64,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,refresh
+        include: health,info,metrics
       cors:
         allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
         allowed-methods: "*"
   endpoint:
     health:
-      show-details: always
-      show-components: always
+      show-details: never
+      probes:
+        enabled: true
     metrics:
       enabled: true
   metrics:
@@ -81,10 +84,9 @@ management:
 logging:
   level:
     root: INFO
-    com.movento: DEBUG
+    com.movento: ${APP_LOG_LEVEL:INFO}
     org.springframework.web: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    # Never log SQL bind parameters: they include password hashes and emails.
 
 app:
   admin-email: ${ADMIN_EMAIL:}

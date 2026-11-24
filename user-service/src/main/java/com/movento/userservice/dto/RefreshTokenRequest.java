@@ -1,3 +1,6 @@
 package com.movento.userservice.dto;
 import jakarta.validation.constraints.NotBlank;
-public record RefreshTokenRequest(@NotBlank String refreshToken) {}
+import java.util.UUID;
+
+/** profileId is optional: when present the refreshed access token stays scoped to that viewer profile. */
+public record RefreshTokenRequest(@NotBlank String refreshToken, UUID profileId) {}

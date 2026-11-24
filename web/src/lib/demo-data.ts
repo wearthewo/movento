@@ -19,7 +19,8 @@ export const demoTitles: Title[] = [
 export const demoFeed: HomeFeed = {
   featured: demoTitles.find((title) => title.slug === "neon-harbor") ?? demoTitles[0],
   rails: [
-    { id: "trending", title: "Trending now", items: demoTitles.filter((title) => title.trending) },
+    { id: "trending", title: "Trending Now", items: demoTitles.filter((title) => title.trending) },
+    { id: "top10", title: "Top 10 on Movento Today", kind: "top10", items: [...demoTitles].sort((a, b) => Number(Boolean(b.trending)) - Number(Boolean(a.trending))).slice(0, 10) },
     { id: "movies", title: "Movies with momentum", items: demoTitles.filter((title) => title.type === "MOVIE") },
     { id: "series", title: "Series to settle into", items: demoTitles.filter((title) => title.type === "SERIES") },
     { id: "new", title: "Recently added", items: [...demoTitles].sort((a, b) => b.releaseYear - a.releaseYear) },

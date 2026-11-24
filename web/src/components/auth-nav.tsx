@@ -1,69 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { CreditCard, LogOut, UserRound } from "lucide-react";
-import type { CurrentUser } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, CreditCard, LogOut, Pencil, Users } from "lucide-react";
+import { ProfileAvatar } from "./profile-avatar";
 
-export function AuthNav() {
-  const [signedIn, setSignedIn] = useState(false);
-  const [user, setUser] = useState<CurrentUser | null>(null);
+export function AuthNav({ signedIn, profile }: { signedIn: boolean; profile: { name: string; kids: boolean } | null }) {
+  const [open, setOpen] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      const marker = document.cookie.split("; ").some((cookie) => cookie === "movento_signed_in=1");
-      setSignedIn(marker);
-      try {
-        const response = await fetch("/api/backend/users/me", { signal: controller.signal });
-        if (!response.ok) {
-          setSignedIn(false);
-          setUser(null);
-          document.cookie = "movento_signed_in=; Max-Age=0; path=/";
-          return;
-        }
-        const payload = await response.json() as CurrentUser;
-        document.cookie = "movento_signed_in=1; Max-Age=2592000; path=/";
-        setSignedIn(true);
-        setUser(payload);
-      } catch {
-        // Keep the local marker if the backend is warming up; protected pages will still enforce auth.
-      }
-    }, 0);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
+    if (!open) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menu.current?.contains(event.target as Node)) setOpen(false);
     };
-  }, []);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    document.cookie = "movento_signed_in=; Max-Age=0; path=/";
-    document.cookie = "movento_profile=; Max-Age=0; path=/";
-    setSignedIn(false);
-    setUser(null);
     window.location.assign("/sign-in?loggedOut=1");
   }
 
-  const displayName = user?.firstName || user?.email?.split("@")[0] || "member";
+  if (!signedIn) {
+    return <Link href="/sign-in" className="rounded bg-primary px-4 py-1.5 text-sm font-semibold text-white transition hover:brightness-110">Sign in</Link>;
+  }
 
-  return <div className="flex items-center gap-2 text-sm">
-    <Link href="/account" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-white/85 transition hover:bg-white/10 hover:text-white">
-      <CreditCard className="size-4" />
-      <span className="hidden sm:inline">Billing</span>
-    </Link>
-    {signedIn ? <>
-      <Link href="/account" className="hidden max-w-48 truncate rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-emerald-100 transition hover:bg-emerald-400/15 md:inline-block" title={user?.email ?? "Signed in"}>
-        Welcome, {displayName}
-      </Link>
-      <Link href="/profiles" className="rounded-full p-2 text-white/80 transition hover:bg-white/10 hover:text-white" aria-label="Profiles">
-        <UserRound className="size-5" />
-      </Link>
-      <button onClick={logout} className="hidden rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white sm:inline-flex" aria-label="Sign out">
-        <LogOut className="size-5" />
+  return <div ref={menu} className="relative">
+    <button onClick={() => setOpen((value) => !value)} aria-haspopup="menu" aria-expanded={open} className="flex items-center gap-1.5" aria-label="Account menu">
+      <ProfileAvatar name={profile?.name ?? "?"} kids={profile?.kids} className="size-8 rounded text-sm" />
+      <ChevronDown className={`size-4 transition ${open ? "rotate-180" : ""}`} />
+    </button>
+    {open && <div role="menu" className="absolute right-0 top-11 w-56 overflow-hidden rounded-md border border-white/10 bg-black/95 py-2 text-sm shadow-2xl">
+      {profile && <p className="truncate px-4 pb-2 text-white/60">Watching as <span className="font-semibold text-white">{profile.name}</span></p>}
+      <MenuLink href="/profiles" icon={<Users className="size-4" />}>Switch profile</MenuLink>
+      <MenuLink href="/profiles?manage=1" icon={<Pencil className="size-4" />}>Manage profiles</MenuLink>
+      <MenuLink href="/account" icon={<CreditCard className="size-4" />}>Account &amp; billing</MenuLink>
+      <button role="menuitem" onClick={logout} className="mt-1 flex w-full items-center gap-3 border-t border-white/10 px-4 pt-3 text-left hover:underline">
+        <LogOut className="size-4" />Sign out of Movento
       </button>
-    </> : <Link href="/sign-in" className="rounded-full border border-primary/50 bg-primary/15 px-3 py-2 font-semibold text-white transition hover:bg-primary/25">
-      Sign in
-    </Link>}
+    </div>}
   </div>;
+}
+
+function MenuLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return <Link role="menuitem" href={href} className="flex items-center gap-3 px-4 py-2 hover:underline">{icon}{children}</Link>;
 }

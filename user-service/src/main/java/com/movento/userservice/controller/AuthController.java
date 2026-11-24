@@ -29,6 +29,6 @@ public class AuthController {
         return ResponseEntity.ok(authService.registerUser(signUpRequest));
     }
 
-    @PostMapping("/refresh") public ResponseEntity<JwtResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) { return ResponseEntity.ok(authService.refresh(request.refreshToken())); }
+    @PostMapping("/refresh") public ResponseEntity<JwtResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) { return ResponseEntity.ok(authService.refresh(request.refreshToken(), request.profileId())); }
     @PostMapping("/logout") public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) { authService.logout(request.refreshToken()); return ResponseEntity.noContent().build(); }
 }

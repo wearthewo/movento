@@ -30,11 +30,11 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       </section>
 
       <div className="mt-10 flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{query ? `${results.length} result${results.length === 1 ? "" : "s"} for "${query}"` : "Browse the full local catalog"}</p>
+        <p className="text-sm text-muted-foreground">{query ? `${results.length} result${results.length === 1 ? "" : "s"} for "${query}"` : "Browse the full catalog"}</p>
       </div>
 
       {results.length > 0 ? (
-        <div className="mt-5 grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
+        <div className="mt-5 grid grid-cols-2 gap-x-3 gap-y-8 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {results.map((item) => <TitleCard key={item.id} item={item} />)}
         </div>
       ) : (

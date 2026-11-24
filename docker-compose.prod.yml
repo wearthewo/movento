@@ -1,0 +1,79 @@
+# Production overlay: pulls prebuilt images from GHCR, keeps every internal port private,
+# requires real secrets, and terminates HTTPS with Caddy (automatic Let's Encrypt certificates).
+#
+#   cp .env.example .env      # fill in DOMAIN, secrets, IMAGE_TAG
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires Docker Compose v2.24+ (for !reset).
+
+x-prod-env: &prod-env
+  SPRING_PROFILES_ACTIVE: prod
+  DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+
+services:
+  postgres:
+    ports: !reset []
+    environment: {POSTGRES_PASSWORD: "${DB_PASSWORD:?set DB_PASSWORD}"}
+  redis:
+    ports: !reset []
+  rabbitmq:
+    ports: !reset []
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-movento}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+
+  service-registry:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/service-registry:${IMAGE_TAG:-latest}
+    ports: !reset []
+  user-service:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/user-service:${IMAGE_TAG:-latest}
+    environment:
+      <<: *prod-env
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 random bytes}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
+  content-service:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/content-service:${IMAGE_TAG:-latest}
+    environment: *prod-env
+  streaming-service:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/streaming-service:${IMAGE_TAG:-latest}
+    environment: *prod-env
+  recommendation-service:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/recommendation-service:${IMAGE_TAG:-latest}
+    environment: *prod-env
+  payment-service:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/payment-service:${IMAGE_TAG:-latest}
+    environment:
+      <<: *prod-env
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET}
+      WEB_URL: https://${DOMAIN:?set DOMAIN}
+  api-gateway:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/api-gateway:${IMAGE_TAG:-latest}
+    ports: !reset []
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to at least 32 random bytes}
+      CORS_ALLOWED_ORIGINS: https://${DOMAIN:?set DOMAIN}
+  web:
+    image: ${IMAGE_REGISTRY:-ghcr.io/wearthewo/movento}/web:${IMAGE_TAG:-latest}
+    ports: !reset []
+    environment:
+      NEXT_PUBLIC_APP_URL: https://${DOMAIN:?set DOMAIN}
+      COOKIE_SECURE: "true"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: {web: {condition: service_healthy}}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}

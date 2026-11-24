@@ -2,7 +2,15 @@
 
 Movento is a local-first Netflix-inspired streaming portfolio app. It runs with Docker Compose and includes a Next.js frontend, a Spring Cloud API gateway, Eureka service discovery, Spring Boot domain services, PostgreSQL, Redis, and RabbitMQ.
 
-This repo is intentionally configured for local development and GitHub Actions validation. It does not deploy to Vercel, Render, or any live host.
+It runs locally with one command, and `docker-compose.prod.yml` turns the same stack into a single-server deployment behind Caddy (automatic HTTPS) using images that CI publishes to GHCR.
+
+## Viewer Features
+
+- **Who's watching?** gate with up to 5 profiles, add/delete profiles, and **kids profiles** that only see kids-rated titles (enforced server-side).
+- **Home**: full-bleed billboard, *Continue Watching* with progress bars, *Trending Now*, *Top 10 on Movento Today* (ranked numbers), *My List*, *New on Movento*, and genre rows; rows scroll with arrow buttons.
+- **Title page**: Play / Resume / *Play S1:E1*, My List toggle that remembers its state, season picker with episode list, and *More Like This*.
+- **Player**: full-screen HLS, resumes where you left off (per episode), saves progress every 10 s and on exit, *Next Episode* button with auto-play countdown, keyboard shortcuts (space/k, ←/→, f, Esc).
+- **Sessions** stay signed in: the Next.js proxy silently refreshes the 15-minute access token and keeps the selected profile.
 
 ## System Architecture
 
@@ -27,7 +35,7 @@ Browser
 
 ## Containers
 
-`docker-compose.yml` starts eleven containers:
+`docker-compose.yml` starts eleven containers (every service has a healthcheck, restart policy, log rotation and memory limit; infrastructure ports bind to `127.0.0.1` only):
 
 | Service | Purpose | Port |
 |---|---|---:|
@@ -123,7 +131,7 @@ npm run typecheck
 npm run build
 ```
 
-Docker image build matrix is handled by Compose locally:
+All Spring services build from one shared, cache-friendly `docker/java-service.Dockerfile` (`--build-arg SERVICE=<module>`): BuildKit Maven cache, layered jars, non-root user, container-aware JVM memory. Compose builds them locally:
 
 ```powershell
 docker compose build
@@ -151,6 +159,11 @@ The real certificate file and generated truststore are ignored by git. If your m
 - `GET /api/v1/catalog/titles?type=SERIES`
 - `GET /api/v1/catalog/search?q=sci-fi`
 - `GET /api/v1/catalog/titles/{slug}`
+- `GET /api/v1/catalog/titles/{slug}/episodes`
+- `GET /api/v1/catalog/titles/{slug}/similar`
+- `GET /api/v1/catalog/titles?ids=1,2,3` / `?genre=Drama`
+
+Profile library (signed in, profile selected): `GET /api/v1/library/continue-watching`, `GET /api/v1/library/watchlist/titles`, `GET|PUT|DELETE /api/v1/library/watchlist/{id}`, `GET|PUT /api/v1/library/progress/{id}`.
 
 Search is PostgreSQL-backed for the local MVP. It searches title, synopsis, maturity rating, genre, and release year, then ranks exact/prefix title matches first, trending titles next, and newer titles after that.
 
@@ -218,6 +231,7 @@ Content service migrations:
 | `V6__view_history_entity_alignment.sql` | Aligns view history fields with the Java entity |
 | `V7__view_history_user_id_bigint.sql` | Converts view history user IDs back to numeric IDs |
 | `V8__expanded_demo_catalog.sql` | Adds more movies, series, genres, and genre links |
+| `V9__episodes_and_library_indexes.sql` | Seeds seasons/episodes for demo series; indexes for Continue Watching and My List |
 
 User service migrations include the base user schema, viewer profiles/normalized email, and refresh tokens. Payment service migrations include payment/subscription tables and webhook event tracking.
 
@@ -258,7 +272,24 @@ Key paths:
 3. `docker`: builds every backend service Docker image without pushing.
 4. `compose`: starts the stack, waits for readiness, checks routing and Eureka registration, and always cleans up.
 
-No deploy jobs are included.
+5. The `docker` job also publishes images to `ghcr.io/<owner>/movento/<service>` for pushes to the release branch / `main` and for `v*` tags (pull requests only build). The compose job additionally checks that spoofed identity headers are rejected and that the home feed and episodes respond.
+
+## Production Deployment (single server)
+
+```bash
+cp .env.example .env   # set DOMAIN, DB_PASSWORD, RABBITMQ_PASSWORD, JWT_SECRET, ADMIN_EMAIL, STRIPE_*, IMAGE_TAG
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+The overlay removes every published internal port, refuses to start without real secrets, sets secure cookies, and puts Caddy in front: only the web app and `POST /api/v1/webhooks/stripe` are exposed on 80/443.
+
+## Security Model
+
+- The gateway strips client-supplied `X-Account-Id`, `X-Profile-Id`, `X-Profile-Maturity`, `X-User-Email`, `X-User-Roles` and `X-Subscription-Status` on **every** route before re-deriving them from a verified JWT, and adds an `X-Request-Id`.
+- Catalog routes use optional authentication, so guests can browse while profile tokens get maturity filtering.
+- Recommendations and playback sessions check ownership; writes are admin-only.
+- Tokens live only in httpOnly cookies; the browser never sees them.
 
 `docker-compose-full.yml`, `nginx/`, and the old Prometheus/Grafana/Elasticsearch configuration are retained only as legacy reference material. They are not part of the supported local stack or CI and should not be used as a production deployment definition.
 

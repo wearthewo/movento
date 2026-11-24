@@ -30,5 +30,12 @@ public class PlaybackController {
         return ResponseEntity.ok(Map.of("sessionId", session.getId(), "manifestUrl", manifest, "expiresAt", Instant.now().plusSeconds(900).toString(), "profileId", profileId == null ? "default" : profileId));
     }
 
-    @PostMapping("/sessions/{id}/complete") public StreamingSessionResponse complete(@PathVariable Long id) { return sessions.endSession(id); }
+    /** Only the account that started a session may end it. */
+    @PostMapping("/sessions/{id}/complete")
+    public StreamingSessionResponse complete(@PathVariable Long id, @RequestHeader("X-Account-Id") Long accountId) {
+        if (!accountId.equals(sessions.getSession(id).getUserId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        }
+        return sessions.endSession(id);
+    }
 }
