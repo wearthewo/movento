@@ -125,10 +125,10 @@ sequenceDiagram
 | `streaming-service` | Playback sessions, entitlement check, signed media URLs | internal `8083` |
 | `payment-service` | Plans, test-mode billing, payment history, Stripe webhooks, internal entitlements | internal `8082` |
 | `recommendation-service` | Per-account recommendations (owner-only reads, admin writes) | internal `8084` |
-| `postgres` / `redis` / `rabbitmq` | Data, rate-limit buckets, events | `127.0.0.1` only |
+| `postgres` / `redis` / `rabbitmq` | Data, rate-limit buckets, events | `127.0.0.1:15432` / `:16379` / `:15673` |
 | `mailpit` | Local inbox for account emails | `127.0.0.1:8025` |
 
-Every container has a healthcheck, a restart policy, log rotation and a memory limit. Infrastructure ports bind to `127.0.0.1` only.
+Every container has a healthcheck, a restart policy, log rotation and a memory limit. Infrastructure ports bind to `127.0.0.1` only; PostgreSQL, Redis and RabbitMQ use non-default host ports (15432, 16379, 15673) so they never clash with local installs, and every host port is configurable in `.env`.
 
 ### Tech stack
 
@@ -265,6 +265,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ## Troubleshooting
 
+- **"ports are not available … bind: An attempt was made to access a socket in a way forbidden by its access permissions"** (Windows): the port is used by another program (for example a local PostgreSQL) or reserved by Windows (`netsh interface ipv4 show excludedportrange protocol=tcp`). Pick another port in `.env` (for example `POSTGRES_HOST_PORT=25432`) and run `docker compose up -d` again. Databases are published on `15432`/`16379`/`15673` by default to avoid clashes.
 - **The first request is slow:** services are still registering with Eureka. Run `docker compose ps` and wait for `healthy`.
 - **"Choose a plan" when pressing Play:** expected. Subscribe in test mode on the Account page, or set `PLAYBACK_REQUIRE_SUBSCRIPTION=false`.
 - **"Too many attempts":** the auth rate limit or account lockout was triggered. Wait a minute (lockout: 15 minutes), or reset your password.

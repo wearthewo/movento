@@ -43,8 +43,9 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    # Bound to localhost only: reachable from your machine, not from the rest of the network.
-    ports: ["127.0.0.1:5432:5432"]
+    # Bound to localhost only, on 15432 so it never clashes with a PostgreSQL already installed on your machine.
+    # Every published port can be changed in .env (POSTGRES_HOST_PORT, REDIS_HOST_PORT, ... WEB_HOST_PORT).
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
@@ -55,7 +56,7 @@ services:
     restart: unless-stopped
     logging: *logging
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
-    ports: ["127.0.0.1:6379:6379"]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"]
     volumes: ["redis_data:/data"]
     healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 5s, retries: 12}
 
@@ -66,7 +67,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
-    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    ports: ["127.0.0.1:${RABBITMQ_HOST_PORT:-15673}:5672", "127.0.0.1:${RABBITMQ_UI_HOST_PORT:-15672}:15672"]
     volumes: ["rabbitmq_data:/var/lib/rabbitmq"]
     healthcheck: {test: ["CMD", "su-exec", "rabbitmq", "rabbitmq-diagnostics", "-q", "ping"], interval: 15s, timeout: 15s, retries: 12, start_period: 120s}
 
@@ -75,7 +76,7 @@ services:
     image: axllent/mailpit:v1.21
     restart: unless-stopped
     logging: *logging
-    ports: ["127.0.0.1:8025:8025"]
+    ports: ["127.0.0.1:${MAILPIT_HOST_PORT:-8025}:8025"]
     healthcheck: {test: ["CMD", "wget", "-qO-", "http://localhost:8025/livez"], interval: 10s, timeout: 5s, retries: 12}
 
   service-registry:
@@ -83,7 +84,7 @@ services:
     image: ${IMAGE_REGISTRY:-movento}/service-registry:${IMAGE_TAG:-local}
     build: {<<: *java-build, args: {SERVICE: service-registry}}
     environment: {MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"}
-    ports: ["127.0.0.1:8761:8761"]
+    ports: ["127.0.0.1:${EUREKA_HOST_PORT:-8761}:8761"]
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
 
   user-service:
@@ -131,7 +132,7 @@ services:
     image: ${IMAGE_REGISTRY:-movento}/api-gateway:${IMAGE_TAG:-local}
     build: {<<: *java-build, args: {SERVICE: api-gateway}}
     environment: {EUREKA_URL: "http://service-registry:8761/eureka/", REDIS_HOST: redis, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"}
-    ports: ["127.0.0.1:8080:8080"]
+    ports: ["127.0.0.1:${GATEWAY_HOST_PORT:-8080}:8080"]
     depends_on: {redis: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
 
@@ -140,7 +141,7 @@ services:
     build: {context: ., dockerfile: web/Dockerfile}
     restart: unless-stopped
     logging: *logging
-    ports: ["3000:3000"]
+    ports: ["${WEB_HOST_PORT:-3000}:3000"]
     environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:3000}", COOKIE_SECURE: "${COOKIE_SECURE:-false}"}
     depends_on: {api-gateway: {condition: service_healthy}}
 
