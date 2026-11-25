@@ -63,7 +63,7 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
         """)
     List<Content> searchCatalog(@Param("query") String query, Pageable pageable);
     
-    @Query("SELECT DISTINCT c FROM Content c LEFT JOIN FETCH c.genres WHERE c.id IN :ids")
+    @Query("SELECT c FROM Content c LEFT JOIN FETCH c.genres WHERE c.id IN :ids")
     List<Content> findByIds(@Param("ids") List<Long> ids);
     
     @Query("SELECT c FROM Content c WHERE c.id = :id AND TYPE(c) = :contentType")

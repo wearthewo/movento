@@ -8,6 +8,10 @@ import { ArrowLeft, SkipForward } from "lucide-react";
 
 const SAVE_EVERY_SECONDS = 10;
 const NEXT_EPISODE_COUNTDOWN = 8;
+/** Recovery budget before the viewer sees an error (hls.js "fatal" errors are usually recoverable). */
+const MAX_NETWORK_RETRIES = 3;
+const MAX_MEDIA_RECOVERIES = 2;
+const MAX_AUTO_RESTARTS = 1;
 
 interface Props {
   assetId: string;
@@ -36,6 +40,12 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
   const [chromeVisible, setChromeVisible] = useState(true);
   const [showNext, setShowNext] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [notice, setNotice] = useState("");
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const resumeAt = useRef(startAt);
+  const autoRestarts = useRef(0);
+  const usingHls = useRef(false);
 
   const save = useCallback((force = false) => {
     const el = video.current;
@@ -56,6 +66,31 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
   useEffect(() => {
     let hls: Hls | undefined;
     let cancelled = false;
+    const timers: number[] = [];
+    usingHls.current = false;
+    // A retry ("Try again" or an automatic restart) resumes where playback stopped, not where it began.
+    const from = attempt > 0 ? resumeAt.current : startAt;
+
+    function fail() {
+      if (cancelled) return;
+      const el = video.current;
+      if (el && el.currentTime > 0) resumeAt.current = el.currentTime;
+      hls?.destroy();
+      hls = undefined;
+      setNotice("");
+      setFailed(true);
+      setMessage("Playback failed. Please try again.");
+    }
+
+    /** The signed link is single-session and expires; ask for a fresh one once without bothering the viewer. */
+    function restartWithFreshLink() {
+      if (autoRestarts.current >= MAX_AUTO_RESTARTS) { fail(); return; }
+      autoRestarts.current += 1;
+      const el = video.current;
+      if (el && el.currentTime > 0) resumeAt.current = el.currentTime;
+      setNotice("Playback link expired. Restarting…");
+      setAttempt((value) => value + 1);
+    }
 
     async function load() {
       const response = await fetch(`/api/playback/${assetId}`, { method: "POST" });
@@ -63,39 +98,80 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
       if (cancelled) return;
       if (!response.ok) {
         if (response.status === 402) setNeedsPlan(true);
+        if (response.status >= 500) setFailed(true);
         setMessage(payload.message ?? (response.status === 401 ? "Sign in to start playback." : response.status === 429 ? "Too many playback requests. Please wait a moment." : "Playback is temporarily unavailable."));
         return;
       }
       const el = video.current;
       if (!el) return;
       const source: string = payload.manifestUrl;
-      const start = () => { if (startAt > 0) el.currentTime = startAt; };
-      if (el.canPlayType("application/vnd.apple.mpegurl")) {
-        el.src = source;
-        el.addEventListener("loadedmetadata", start, { once: true });
-      } else if (Hls.isSupported()) {
-        hls = new Hls({ startPosition: startAt > 0 ? startAt : -1 });
-        hls.loadSource(source);
-        hls.attachMedia(el);
-        hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) setMessage("Playback failed. Please try again."); });
+      const seek = () => { if (from > 0) el.currentTime = from; };
+      if (Hls.isSupported()) {
+        usingHls.current = true;
+        let networkRetries = 0;
+        let mediaRecoveries = 0;
+        const player = new Hls({ startPosition: from > 0 ? from : -1 });
+        hls = player;
+        player.loadSource(source);
+        player.attachMedia(el);
+        // Healthy again: forget earlier failures and hide the "Reconnecting…" notice.
+        player.on(Hls.Events.FRAG_BUFFERED, () => { networkRetries = 0; mediaRecoveries = 0; setNotice(""); });
+        player.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal || cancelled) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            const status = data.response?.code ?? 0;
+            if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR && status >= 400 && status < 500) {
+              restartWithFreshLink();
+              return;
+            }
+            if (networkRetries < MAX_NETWORK_RETRIES) {
+              networkRetries += 1;
+              setNotice("Reconnecting…");
+              const manifestFailed = data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT;
+              timers.push(window.setTimeout(() => {
+                if (cancelled || hls !== player) return;
+                if (manifestFailed) player.loadSource(source); else player.startLoad();
+              }, 1000 * networkRetries));
+              return;
+            }
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < MAX_MEDIA_RECOVERIES) {
+            mediaRecoveries += 1;
+            player.recoverMediaError();
+            return;
+          }
+          fail();
+        });
+      } else if (el.canPlayType("application/vnd.apple.mpegurl")) {
+        el.src = source; // Safari/iOS play HLS natively
+        el.addEventListener("loadedmetadata", seek, { once: true });
       } else {
         setMessage("HLS playback is not supported by this browser.");
         return;
       }
       setMessage("");
+      setFailed(false);
       el.play().catch(() => undefined); // autoplay may be blocked until the user interacts
     }
 
-    load().catch(() => { if (!cancelled) setMessage("Playback is temporarily unavailable."); });
+    load().catch(() => { if (!cancelled) { setFailed(true); setMessage("Playback is temporarily unavailable."); } });
     const flush = () => save(true);
     window.addEventListener("pagehide", flush);
     return () => {
       cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
       window.removeEventListener("pagehide", flush);
       save(true);
       hls?.destroy();
     };
-  }, [assetId, startAt, save]);
+  }, [assetId, startAt, save, attempt]);
+
+  function retry() {
+    autoRestarts.current = 0;
+    setFailed(false);
+    setNotice("");
+    setMessage("Preparing playback…");
+    setAttempt((value) => value + 1);
+  }
 
   // Keyboard shortcuts: space/k play-pause, ←/→ seek 10s, f fullscreen, Esc back.
   useEffect(() => {
@@ -136,7 +212,19 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
     <video ref={video} poster={poster} controls playsInline className="h-full w-full"
       onTimeUpdate={onTimeUpdate} onPause={() => save(true)}
       onEnded={() => { save(true); if (nextHref) setCountdown(NEXT_EPISODE_COUNTDOWN); }}
-      onError={() => setMessage("Playback failed. Please try again.")} />
+      onPlaying={() => setNotice("")}
+      onError={() => {
+        // With hls.js, media errors arrive (and are recovered) through its ERROR event instead.
+        if (usingHls.current) return;
+        const el = video.current;
+        if (el && el.currentTime > 0) resumeAt.current = el.currentTime;
+        setFailed(true);
+        setMessage("Playback failed. Please try again.");
+      }} />
+
+    {notice && !message && <div role="status" className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center">
+      <p className="rounded-full bg-black/75 px-4 py-2 text-sm text-white/90">{notice}</p>
+    </div>}
 
     <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-start gap-4 bg-gradient-to-b from-black/80 to-transparent p-5 transition-opacity duration-500 md:p-8 ${chromeVisible ? "opacity-100" : "opacity-0"}`}>
       <Link href={backHref} aria-label="Back" className="pointer-events-auto rounded-full p-2 transition hover:bg-white/10"><ArrowLeft className="size-8" /></Link>
@@ -157,6 +245,7 @@ export function VideoPlayer({ assetId, episodeKey, startAt, poster, heading, sub
       <div>
         <p className="text-lg text-white/85">{message}</p>
         {needsPlan && <Link href="/account#plans" className="mt-5 inline-block rounded bg-primary px-6 py-2.5 font-semibold">Choose a plan</Link>}
+        {failed && <button type="button" onClick={retry} className="mt-5 inline-block rounded bg-white px-6 py-2.5 font-semibold text-black transition hover:bg-white/85">Try again</button>}
         <Link href={backHref} className="mt-4 block text-sm underline">Back</Link>
       </div>
     </div>}

@@ -154,13 +154,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(curl --output /dev/null --silent --write-out '%{http_code}' http://localhost:8080/api/v1/users/me)" = "401"
-          curl --fail --silent -H 'Accept: application/json' http://localhost:8761/eureka/apps > eureka-apps.json
-          for service in USER-SERVICE CONTENT-SERVICE PAYMENT-SERVICE STREAMING-SERVICE RECOMMENDATION-SERVICE API-GATEWAY; do
-            grep --quiet "\"name\"[[:space:]]*:[[:space:]]*\"${service}\"" eureka-apps.json
+          code=$(curl --output /dev/null --silent --write-out '%{http_code}' http://localhost:8080/api/v1/users/me)
+          echo "users/me without a token: $code"; test "$code" = "401"
+          # Each service registers with Eureka on its own schedule, so wait until all of them are listed.
+          missing=""
+          for attempt in $(seq 1 30); do
+            curl --fail --silent -H 'Accept: application/json' http://localhost:8761/eureka/apps > eureka-apps.json || true
+            missing=""
+            for service in USER-SERVICE CONTENT-SERVICE PAYMENT-SERVICE STREAMING-SERVICE RECOMMENDATION-SERVICE API-GATEWAY; do
+              grep --quiet "\"name\"[[:space:]]*:[[:space:]]*\"${service}\"" eureka-apps.json || missing="$missing $service"
+            done
+            [ -z "$missing" ] && break
+            echo "not registered in Eureka yet:$missing (attempt $attempt)"; sleep 5
           done
+          [ -z "$missing" ] || { echo "never registered in Eureka:$missing" >&2; exit 1; }
+          echo "all services registered in Eureka"
           # Spoofed identity headers must be ignored on public routes.
-          test "$(curl --output /dev/null --silent --write-out '%{http_code}' -H 'X-Account-Id: 1' http://localhost:8080/api/v1/library/watchlist)" = "401"
+          code=$(curl --output /dev/null --silent --write-out '%{http_code}' -H 'X-Account-Id: 1' http://localhost:8080/api/v1/library/watchlist)
+          echo "watchlist with a spoofed X-Account-Id: $code"; test "$code" = "401"
           # Netflix-style feed: billboard plus multiple rails, and series expose episodes.
           curl --fail --silent http://localhost:8080/api/v1/catalog/home | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['featured'] and len(d['rails']) >= 4, d.keys()"
           curl --fail --silent http://localhost:8080/api/v1/catalog/titles/signal-house/episodes | python3 -c "import json,sys; assert len(json.load(sys.stdin)) >= 1"

@@ -254,7 +254,7 @@ Known limits of a local project: video segments come from a public test stream (
 
 ## Performance
 
-- The **home feed** is built in one query (titles plus genres via an entity graph), then cached in memory per maturity level for 60 s and invalidated whenever an admin edits the catalog.
+- The **home feed** is precomputed (stale-while-revalidate): it is built at startup and refreshed in the background every 50 s for the maturity levels in use, so no request waits for a rebuild. Admin edits drop it after commit and trigger an immediate background rebuild. Each slow rebuild logs its timing (`docker compose logs content-service | Select-String "Catalog snapshot"`).
 - **Paging** on `GET /api/v1/catalog/titles?page=&size=` (with an `X-Total-Count` header); catalog scans are capped.
 - Indexes for the hot paths: Continue Watching, My List, active refresh tokens and account tokens.
 - The visible catalog, home feed and episode lists are kept in memory per maturity level, so title pages, "More Like This", My List, Continue Watching and Top 10 are answered without catalog-wide queries.
