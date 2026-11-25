@@ -148,10 +148,12 @@ public class CatalogService {
         Set<Long> genres = base.getGenres().stream().map(Genre::getId).collect(Collectors.toSet());
         return visible(policy).stream()
                 .filter(c -> !c.getId().equals(base.getId()))
-                .filter(c -> !exclude.contains(c.getId()))
                 .map(c -> Map.entry(c, c.getGenres().stream().filter(g -> genres.contains(g.getId())).count()))
                 .filter(e -> e.getValue() > 0)
-                .sorted(Comparator.<Map.Entry<Content, Long>>comparingLong(Map.Entry::getValue).reversed()
+                // Titles the profile already started are not removed, only ranked last: after a lot of viewing
+                // (or testing) removing them could leave the row empty, and Netflix also re-surfaces watched titles.
+                .sorted(Comparator.<Map.Entry<Content, Long>, Boolean>comparing(e -> exclude.contains(e.getKey().getId()))
+                        .thenComparing(Comparator.<Map.Entry<Content, Long>>comparingLong(Map.Entry::getValue).reversed())
                         .thenComparing((Map.Entry<Content, Long> e) -> !e.getKey().isTrending())
                         .thenComparing((Map.Entry<Content, Long> e) -> e.getKey().getReleaseYear(), Comparator.nullsLast(Comparator.<Integer>reverseOrder())))
                 .limit(12)
