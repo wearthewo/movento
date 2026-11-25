@@ -9,6 +9,9 @@
 #  * the runtime runs as a non-root user with container-aware JVM memory settings.
 
 ARG JAVA_VERSION=17
+# build    = compile with Maven inside Docker (default, used locally)
+# prebuilt = package a jar that was already built outside Docker (CI: ci-jars/<service>.jar), no Maven at all
+ARG JAR_SOURCE=build
 
 FROM maven:3.9-eclipse-temurin-${JAVA_VERSION} AS build
 ARG SERVICE
@@ -37,6 +40,17 @@ RUN --mount=type=cache,target=/root/.m2 \
     cp "${SERVICE}"/target/*.jar app.jar && \
     java -Djarmode=layertools -jar app.jar extract --destination extracted
 
+# CI path: reuse the jar from the backend job instead of downloading every dependency again per image
+# (eight parallel image builds were enough for Maven Central to answer 429 Too Many Requests).
+FROM eclipse-temurin:${JAVA_VERSION}-jre-jammy AS prebuilt
+ARG SERVICE
+WORKDIR /workspace
+COPY ci-jars/${SERVICE}.jar app.jar
+RUN java -Djarmode=layertools -jar app.jar extract --destination extracted
+
+# BuildKit only builds the stage that is actually selected here.
+FROM ${JAR_SOURCE} AS artifact
+
 FROM eclipse-temurin:${JAVA_VERSION}-jre-jammy AS runtime
 ARG SERVICE
 WORKDIR /app
@@ -50,10 +64,10 @@ RUN set -eux; \
     groupadd --system movento; useradd --system --gid movento --home-dir /app --shell /usr/sbin/nologin movento
 
 # Least-frequently-changing layers first.
-COPY --from=build --chown=movento:movento /workspace/extracted/dependencies/ ./
-COPY --from=build --chown=movento:movento /workspace/extracted/spring-boot-loader/ ./
-COPY --from=build --chown=movento:movento /workspace/extracted/snapshot-dependencies/ ./
-COPY --from=build --chown=movento:movento /workspace/extracted/application/ ./
+COPY --from=artifact --chown=movento:movento /workspace/extracted/dependencies/ ./
+COPY --from=artifact --chown=movento:movento /workspace/extracted/spring-boot-loader/ ./
+COPY --from=artifact --chown=movento:movento /workspace/extracted/snapshot-dependencies/ ./
+COPY --from=artifact --chown=movento:movento /workspace/extracted/application/ ./
 
 USER movento
 ENV SPRING_PROFILES_ACTIVE=prod \
