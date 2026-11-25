@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { demoFeed, demoTitles } from "./demo-data";
 import { ACCESS_COOKIE, gatewayUrl } from "./session";
@@ -41,9 +42,7 @@ async function catalogFetch<T>(path: string): Promise<T> {
   return (await accessToken()) ? gatewayFetch<T>(path) : publicGatewayFetch<T>(path);
 }
 
-export async function isSignedIn() {
-  return Boolean(await accessToken());
-}
+export const isSignedIn = cache(async () => Boolean(await accessToken()));
 
 export async function getHomeFeed(): Promise<HomeFeed> {
   try { return await catalogFetch("/api/v1/catalog/home"); } catch { return demoFeed; }
@@ -63,15 +62,16 @@ export async function searchTitles(query: string): Promise<Title[]> {
   }
 }
 
-export async function getTitle(slug: string): Promise<Title | undefined> {
+// cache(): one request per render even when both generateMetadata and the page ask for the same title.
+export const getTitle = cache(async (slug: string): Promise<Title | undefined> => {
   try { return await catalogFetch(`/api/v1/catalog/titles/${encodeURIComponent(slug)}`); }
   catch { return demoTitles.find((x) => x.slug === slug); }
-}
+});
 
-export async function getTitleById(id: string): Promise<Title | undefined> {
+export const getTitleById = cache(async (id: string): Promise<Title | undefined> => {
   try { return (await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${encodeURIComponent(id)}`))[0]; }
   catch { return demoTitles.find((x) => x.id === id); }
-}
+});
 
 export async function getEpisodes(slug: string): Promise<Season[]> {
   try { return await catalogFetch(`/api/v1/catalog/titles/${encodeURIComponent(slug)}/episodes`); } catch { return []; }

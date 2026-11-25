@@ -58,9 +58,17 @@ public class CatalogService {
 
     public record SimilarTo(CatalogTitleResponse seed, List<CatalogTitleResponse> items) {}
 
+    /** Episode lists per show (they change only through migrations/admin work). */
+    private final java.util.concurrent.ConcurrentHashMap<Long, CachedEpisodes> episodeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record CachedEpisodes(List<SeasonResponse> seasons, java.time.Instant expiresAt) {}
+
+    private static final java.time.Duration EPISODES_TTL = java.time.Duration.ofMinutes(10);
+
     public void invalidate() {
         homeCache.clear();
         catalogCache.clear();
+        episodeCache.clear();
     }
 
     public record Rail(String id, String title, String kind, List<CatalogTitleResponse> items) {}
@@ -114,23 +122,30 @@ public class CatalogService {
         return deduped.values().stream().map(this::map).toList();
     }
 
+    /** Served from the in-memory catalog snapshot; falls back to the database (and its 404 rules) otherwise. */
     public CatalogTitleResponse title(MaturityPolicy policy, String slug) {
-        return map(find(policy, slug));
+        return cachedBySlug(policy, slug).map(this::map).orElseGet(() -> map(find(policy, slug)));
     }
 
+    /** My List, Continue Watching, Top 10: mostly answered from the snapshot, database only for the rest. */
     public List<CatalogTitleResponse> byIds(MaturityPolicy policy, List<Long> ids) {
         if (ids.isEmpty()) return List.of();
-        Map<Long, Content> found = content.findByIds(ids).stream()
-                .filter(Content::isActive)
-                .filter(c -> policy.allows(c.getContentRating()))
-                .collect(Collectors.toMap(Content::getId, c -> c));
+        Map<Long, Content> found = new java.util.HashMap<>();
+        Set<Long> wanted = new java.util.HashSet<>(ids);
+        for (Content c : visible(policy)) if (wanted.contains(c.getId())) found.put(c.getId(), c);
+        List<Long> missing = ids.stream().filter(id -> !found.containsKey(id)).distinct().toList();
+        if (!missing.isEmpty()) {
+            content.findByIds(missing).stream()
+                    .filter(Content::isActive)
+                    .filter(c -> policy.allows(c.getContentRating()))
+                    .forEach(c -> found.put(c.getId(), c));
+        }
         return ids.stream().map(found::get).filter(java.util.Objects::nonNull).map(this::map).toList();
     }
 
     /** Titles sharing the most genres with the given one, ties broken by trending and recency. */
     public List<CatalogTitleResponse> similar(MaturityPolicy policy, String slug) {
-        Content base = visible(policy).stream().filter(c -> slug.equals(c.getSlug())).findFirst()
-                .orElseGet(() -> find(policy, slug));
+        Content base = cachedBySlug(policy, slug).orElseGet(() -> find(policy, slug));
         return similarTo(policy, base, Set.of());
     }
 
@@ -162,8 +177,16 @@ public class CatalogService {
     }
 
     public List<SeasonResponse> episodes(MaturityPolicy policy, String slug) {
-        Content show = find(policy, slug);
+        Content show = cachedBySlug(policy, slug).orElseGet(() -> find(policy, slug));
         if (show instanceof Movie) return List.of();
+        CachedEpisodes cached = episodeCache.get(show.getId());
+        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.seasons();
+        List<SeasonResponse> loaded = loadEpisodes(show.getId());
+        episodeCache.put(show.getId(), new CachedEpisodes(loaded, java.time.Instant.now().plus(EPISODES_TTL)));
+        return loaded;
+    }
+
+    private List<SeasonResponse> loadEpisodes(Long showId) {
         Map<Integer, SeasonResponse> seasons = new LinkedHashMap<>();
         jdbc.query("""
                 SELECT s.season_number, s.title AS season_title, e.id, e.episode_number, e.title, e.description,
@@ -178,8 +201,14 @@ public class CatalogService {
                     String.valueOf(rs.getLong("id")), rs.getInt("episode_number"), rs.getString("title"),
                     rs.getString("description"), (Integer) rs.getObject("duration_minutes"), rs.getString("thumbnail_url"));
             seasons.computeIfAbsent(number, n -> new SeasonResponse(n, seasonTitle, new ArrayList<>())).episodes().add(episode);
-        }, show.getId());
-        return List.copyOf(seasons.values());
+        }, showId);
+        return seasons.values().stream()
+                .map(season -> new SeasonResponse(season.seasonNumber(), season.title(), List.copyOf(season.episodes())))
+                .toList();
+    }
+
+    private java.util.Optional<Content> cachedBySlug(MaturityPolicy policy, String slug) {
+        return visible(policy).stream().filter(c -> slug.equals(c.getSlug())).findFirst();
     }
 
     private Content find(MaturityPolicy policy, String slug) {

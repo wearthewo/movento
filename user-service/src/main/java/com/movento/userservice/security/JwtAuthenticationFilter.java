@@ -32,22 +32,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        try {
-            String jwt = parseJwt(request);
-            if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-                String username = jwtUtils.extractUsername(jwt);
-
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
+        String jwt = parseJwt(request);
+        if (jwt != null) {
+            // One signature check, no database round trip: the token already carries the account id, email and
+            // roles (it lives 15 minutes; disabling an account takes effect when it expires, as at the gateway).
+            jwtUtils.parseValidClaims(jwt).ifPresent(claims -> {
+                Object rawAccountId = claims.get("accountId");
+                if (!(rawAccountId instanceof Number accountId)) return;
+                Object rawRoles = claims.get("roles");
+                java.util.List<org.springframework.security.core.authority.SimpleGrantedAuthority> authorities =
+                        rawRoles instanceof java.util.Collection<?> roles
+                                ? roles.stream().map(role -> new org.springframework.security.core.authority.SimpleGrantedAuthority(String.valueOf(role))).toList()
+                                : java.util.List.of();
+                UserDetailsImpl principal = new UserDetailsImpl(accountId.longValue(), claims.getSubject(), null, authorities);
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-            }
-        } catch (Exception e) {
-            logger.error("Cannot set user authentication: {}", e.getMessage());
+            });
         }
-        
+
         filterChain.doFilter(request, response);
     }
 

@@ -227,6 +227,7 @@ recommendation-service-1  | Consumed playback.started event=3f2a… profile=9c1e
 - To follow one request across services, take its `req=…` id from the gateway line and search all logs for it.
 - To see the raw events, open the RabbitMQ UI and bind a temporary queue to the `streaming.events` exchange with routing key `#`, then use *Get messages*.
 - To see SQL, set `HIBERNATE_SQL_LOG_LEVEL=DEBUG` for content-service.
+- For a per-route latency table (count, P50, P95, max, 5xx errors), run `.\scripts\latency-report.ps1` (PowerShell) after clicking through the app.
 
 ## Test-mode payments
 
@@ -256,6 +257,9 @@ Known limits of a local project: video segments come from a public test stream (
 - The **home feed** is built in one query (titles plus genres via an entity graph), then cached in memory per maturity level for 60 s and invalidated whenever an admin edits the catalog.
 - **Paging** on `GET /api/v1/catalog/titles?page=&size=` (with an `X-Total-Count` header); catalog scans are capped.
 - Indexes for the hot paths: Continue Watching, My List, active refresh tokens and account tokens.
+- The visible catalog, home feed and episode lists are kept in memory per maturity level, so title pages, "More Like This", My List, Continue Watching and Top 10 are answered without catalog-wide queries.
+- Home sends the billboard immediately and streams personal rows; title and watch pages start every independent request at once.
+- user-service authenticates requests from the JWT claims (one signature check, no database lookup).
 - Guests get Next.js-cached catalog pages (120 s revalidation); signed-in pages are rendered per profile.
 - Docker images: dependency layers are cached by BuildKit, Spring Boot jars are split into layers, and the JVM is container-aware (`MaxRAMPercentage=75`).
 

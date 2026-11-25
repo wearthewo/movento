@@ -56,6 +56,15 @@ public class JwtUtils {
         return extractExpiration(token).before(new Date());
     }
     
+    /** Verifies signature, issuer and expiry once and returns the claims; empty when the token is not valid. */
+    public java.util.Optional<Claims> parseValidClaims(String token) {
+        try {
+            return java.util.Optional.of(extractAllClaims(token));
+        } catch (Exception invalid) {
+            return java.util.Optional.empty();
+        }
+    }
+
     public boolean validateJwtToken(String authToken) {
         try {
             Jwts.parserBuilder()
