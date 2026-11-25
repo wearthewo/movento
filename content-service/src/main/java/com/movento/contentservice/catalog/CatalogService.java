@@ -159,7 +159,11 @@ public class CatalogService {
     }
 
     private List<Content> visible(MaturityPolicy policy) {
-        return content.findAllByActiveTrueOrderByCreatedAtDesc(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT)).stream()
+        List<Long> ids = content.findActiveIdsNewestFirst(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT));
+        if (ids.isEmpty()) return List.of();
+        Map<Long, Content> byId = content.findByIds(ids).stream().collect(Collectors.toMap(Content::getId, c -> c));
+        return ids.stream().map(byId::get)
+                .filter(java.util.Objects::nonNull)
                 .filter(c -> policy.allows(c.getContentRating()))
                 .toList();
     }

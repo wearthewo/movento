@@ -27,6 +27,7 @@ public class PlaybackEventListener {
     @RabbitListener(queues = MessagingConfig.QUEUE)
     public void onPlaybackStarted(PlaybackEvent event) {
         if (event == null || event.eventId() == null || event.accountId() == null || event.contentId() == null) {
+            log.warn("Rejecting malformed playback event (will be dead-lettered): {}", event);
             throw new AmqpRejectAndDontRequeueException("Malformed playback event: " + event);
         }
         if (event.version() > 1) {
@@ -34,7 +35,12 @@ public class PlaybackEventListener {
         }
         boolean stored = store.save(event.eventId(), event.accountId(), parseProfile(event.profileId()), event.contentId(),
                 event.occurredAt() == null ? Instant.now() : event.occurredAt());
-        if (!stored) log.debug("Ignored duplicate playback event {}", event.eventId());
+        if (stored) {
+            log.info("Consumed {} event={} profile={} content={} -> viewing signal stored",
+                    event.type(), event.eventId(), event.profileId(), event.contentId());
+        } else {
+            log.info("Ignored duplicate {} event={} (already stored)", event.type(), event.eventId());
+        }
     }
 
     public static UUID parseProfile(String raw) {

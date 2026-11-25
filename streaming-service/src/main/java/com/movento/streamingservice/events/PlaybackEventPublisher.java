@@ -27,6 +27,8 @@ public class PlaybackEventPublisher {
     public void publish(PlaybackEvent event) {
         try {
             rabbitTemplate.convertAndSend(exchange, event.type(), event);
+            log.info("Published {} event={} session={} account={} profile={} content={}",
+                    event.type(), event.eventId(), event.sessionId(), event.accountId(), event.profileId(), event.contentId());
         } catch (AmqpException brokerUnavailable) {
             log.warn("Could not publish {} for session {}: {}", event.type(), event.sessionId(), brokerUnavailable.getMessage());
         }
