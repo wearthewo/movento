@@ -143,6 +143,8 @@ services:
     logging: *logging
     ports: ["${WEB_HOST_PORT:-3000}:3000"]
     environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:3000}", COOKIE_SECURE: "${COOKIE_SECURE:-false}"}
+    # Keeps resized images between rebuilds, so the billboard isn't re-downloaded and re-encoded each time.
+    volumes: ["web_image_cache:/app/.next/cache"]
     depends_on: {api-gateway: {condition: service_healthy}}
 
-volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}}
+volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}, web_image_cache: {}}
