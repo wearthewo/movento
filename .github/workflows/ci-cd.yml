@@ -153,6 +153,20 @@ jobs:
           echo "playback without plan: $status"; test "$status" = "402"
           curl --fail-with-body -s -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"planId":"standard"}' http://localhost:8080/api/v1/billing/checkout; echo
           curl --fail-with-body -s -X POST -H "Authorization: Bearer $token" http://localhost:8080/api/v1/playback/1/session | python3 -c "import json,sys; body=json.load(sys.stdin); print('signed manifest:', body['manifestUrl']); assert '&sig=' in body['manifestUrl']"
+          # Event-driven recommendations: playback.started -> RabbitMQ -> recommendation-service -> "Because you watched".
+          profile=$(curl --fail-with-body -s -H "Authorization: Bearer $token" http://localhost:8080/api/v1/users/me/profiles | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          ptoken=$(curl --fail-with-body -s -X POST -H "Authorization: Bearer $token" "http://localhost:8080/api/v1/users/me/profiles/$profile/select" | python3 -c "import json,sys; print(json.load(sys.stdin)['accessToken'])")
+          curl --fail-with-body -s -o /dev/null -X POST -H "Authorization: Bearer $ptoken" http://localhost:8080/api/v1/playback/2/session
+          seed=""
+          for attempt in $(seq 1 20); do
+            seed=$(curl -s -H "Authorization: Bearer $ptoken" http://localhost:8080/api/v1/recommendations/because-you-watched | python3 -c "import json,sys; print(json.load(sys.stdin).get('seedContentId') or '')" || true)
+            [ "$seed" = "2" ] && break
+            echo "waiting for playback event to be consumed (attempt $attempt)"; sleep 2
+          done
+          echo "because-you-watched seed: $seed"; test "$seed" = "2"
+          curl --fail-with-body -s -H "Authorization: Bearer $ptoken" "http://localhost:8080/api/v1/recommendations/popular?days=1" | python3 -c "import json,sys; rows=json.load(sys.stdin); print('popular:', rows); assert any(r['contentId'] == 2 for r in rows)"
+          # Nothing was dead-lettered.
+          curl --fail -s -u guest:guest http://localhost:15672/api/queues/%2F/recommendation.playback-started.dlq | python3 -c "import json,sys; q=json.load(sys.stdin); print('dlq messages:', q.get('messages')); assert q.get('messages', 0) == 0"
       - name: Show diagnostics on failure
         if: failure()
         run: |

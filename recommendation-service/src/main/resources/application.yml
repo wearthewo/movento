@@ -12,7 +12,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -31,6 +31,16 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        # Transient failures: 3 attempts with backoff, then the message is rejected without requeue
+        # and RabbitMQ routes it to the dead-letter queue instead of retrying forever.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
 
 eureka:
   client:
@@ -47,14 +57,15 @@ management:
         include: health,info
   endpoint:
     health:
-      show-details: always
+      show-details: never
 
 logging:
   level:
     root: INFO
-    com.movento: DEBUG
+    com.movento: ${APP_LOG_LEVEL:INFO}
 
 app:
   messaging:
+    streaming-exchange: streaming.events
     exchange: recommendation.events
     routing-key: recommendation.item

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { demoFeed, demoTitles } from "./demo-data";
 import { ACCESS_COOKIE, gatewayUrl } from "./session";
-import type { ContinueWatchingItem, CurrentUser, HomeFeed, PaymentRecord, Plan, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
+import type { ContinueWatchingItem, CurrentUser, HomeFeed, HomeRail, PaymentRecord, Plan, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 
@@ -125,4 +125,35 @@ export async function getPayments(): Promise<PaymentRecord[]> {
 
 export async function getCurrentUser(): Promise<CurrentUser | undefined> {
   try { return await gatewayFetch("/api/v1/users/me"); } catch { return undefined; }
+}
+
+/**
+ * Rows driven by viewing events: recommendation-service records every playback start (via RabbitMQ)
+ * and tells us what this profile watched last and what is popular. content-service then supplies the
+ * titles, ranked by shared genres and filtered for the profile's maturity level.
+ */
+export async function getBehaviouralRails(): Promise<{ becauseYouWatched?: HomeRail; topTen?: Title[] }> {
+  if (!(await isSignedIn())) return {};
+  const [signal, popular] = await Promise.all([
+    gatewayFetch<{ seedContentId: number | null; watchedContentIds: number[] }>("/api/v1/recommendations/because-you-watched").catch(() => null),
+    gatewayFetch<{ contentId: number; plays: number }[]>("/api/v1/recommendations/popular?days=7&limit=10").catch(() => []),
+  ]);
+
+  let becauseYouWatched: HomeRail | undefined;
+  if (signal?.seedContentId) {
+    const seed = await getTitleById(String(signal.seedContentId));
+    if (seed) {
+      const watched = new Set(signal.watchedContentIds.map(String));
+      const items = (await getSimilar(seed.slug)).filter((title) => !watched.has(title.id));
+      if (items.length >= 2) becauseYouWatched = { id: "because-you-watched", title: `Because you watched ${seed.title}`, items };
+    }
+  }
+
+  let topTen: Title[] | undefined;
+  if (popular.length >= 3) {
+    const ids = popular.map((entry) => entry.contentId).join(",");
+    const titles = await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${ids}`).catch(() => []);
+    if (titles.length >= 3) topTen = titles.slice(0, 10);
+  }
+  return { becauseYouWatched, topTen };
 }

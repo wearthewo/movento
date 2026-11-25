@@ -10,7 +10,7 @@ A Netflix-style streaming platform built as a microservices system: a Next.js 16
 
 ![Movento walkthrough](docs/media/demo.gif)
 
-▶ **[Watch the full walkthrough with captions (2.5 min, MP4)](docs/media/movento-walkthrough.mp4)**: sign-up, profiles, the plan gate, test-mode checkout, browsing, My List, playback with resume and next episode, search, the kids profile, sign-out and password reset.
+▶ **[Watch the full walkthrough with captions (2.7 min, MP4)](docs/media/movento-walkthrough.mp4)**: sign-up, profiles, the plan gate, test-mode checkout, browsing, My List, playback with resume and next episode, the event-driven *Because you watched* row, search, the kids profile, sign-out and password reset.
 
 | | |
 |---|---|
@@ -22,6 +22,8 @@ A Netflix-style streaming platform built as a microservices system: a Next.js 16
 | **Who's watching?** with up to 5 profiles, including kids | **Plans:** Basic / Standard / Premium (test mode) |
 | ![Account](docs/images/07-account.jpg) | ![Kids profile](docs/images/08-kids.jpg) |
 | **Account:** plan, cancel/resume, payment history | **Kids profile:** only kids-rated titles |
+| ![Because you watched](docs/images/09-because.jpg) | |
+| **Because you watched:** built from playback events via RabbitMQ | |
 
 <sub>The demo was recorded with generated artwork and a generated test stream.</sub>
 
@@ -29,10 +31,11 @@ A Netflix-style streaming platform built as a microservices system: a Next.js 16
 
 **Viewing**
 - **Profiles:** a *Who's watching?* gate with up to 5 profiles per account, add and delete, and **kids profiles** whose catalog is filtered on the server by maturity rating (search and direct links included).
-- **Home:** a full-bleed billboard plus rows for *Continue Watching* (progress bars), *Trending Now*, *Top 10 on Movento Today* (ranked numbers), *My List*, *New on Movento*, movies, series and genres. Arrow buttons page through each row.
+- **Home:** a full-bleed billboard plus rows for *Continue Watching* (progress bars), **Because you watched …** (event-driven), *Trending Now*, *Top 10 on Movento Today* (ranked by real plays once there is data), *My List*, *New on Movento*, movies, series and genres. Arrow buttons page through each row.
+- **Event-driven recommendations:** every playback start is published to RabbitMQ and consumed by recommendation-service, which powers *Because you watched* and the real Top 10.
 - **Title page:** Play / Resume / *Play S1:E1* with the time left, a My List toggle that remembers its state, a season picker with an episode list, and *More Like This* (ranked by shared genres).
 - **Player:** full-screen HLS (hls.js) that resumes per episode, saves progress every 10 s and on exit, shows *Next Episode* with an auto-play countdown, and supports keyboard shortcuts (space/k, ←/→, f, Esc).
-- **Search, Movies and Series pages** with genre rows and an A–Z grid.
+- **Search** opens right in the header and updates as you type; **Movies and Series pages** have genre rows and an A–Z grid.
 
 **Account and billing**
 - Sign up, sign in, and silent session refresh (you stay signed in, keeping the same profile).
@@ -57,13 +60,13 @@ flowchart LR
         CS["content-service :8085<br/>catalog · episodes · search<br/>My List · progress"]
         SS["streaming-service :8083<br/>playback sessions<br/>signed media URLs"]
         PS["payment-service :8082<br/>plans · test-mode billing<br/>Stripe webhooks"]
-        RS["recommendation-service :8084"]
+        RS["recommendation-service :8084<br/>viewing signals · popular titles<br/>event consumer"]
     end
 
     subgraph Data["Infrastructure"]
         PG[("PostgreSQL 16<br/>one database per service")]
         RD[("Redis 7<br/>rate-limit buckets")]
-        MQ[["RabbitMQ<br/>domain events"]]
+        MQ[["RabbitMQ<br/>streaming.events topic<br/>+ dead-letter queue"]]
         MP["Mailpit<br/>local SMTP inbox"]
     end
 
@@ -78,8 +81,37 @@ flowchart LR
     SS -->|"entitlement check"| PS
     US --> MP
     US & CS & SS & PS & RS --> PG
-    SS & PS & RS --> MQ
+    SS -->|"playback.started"| MQ
+    MQ -->|"consume"| RS
 ```
+
+**Event-driven recommendations**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as streaming-service
+    participant Q as RabbitMQ
+    participant R as recommendation-service
+    participant W as Next.js (Home)
+    participant C as content-service
+    S->>S: save playback session (transaction commits)
+    S-)Q: playback.started {eventId, profileId, contentId} (after commit)
+    Q-)R: deliver to recommendation.playback-started
+    R->>R: INSERT … ON CONFLICT (event_id) DO NOTHING (idempotent)
+    Note over Q,R: failure → 3 retries with backoff → dead-letter queue
+    W->>R: GET /recommendations/because-you-watched (profile)
+    R-->>W: seed title + titles already watched
+    W->>C: similar titles to the seed (maturity-filtered)
+    C-->>W: "Because you watched Signal House" row
+```
+
+- **Asynchronous and decoupled:** playback never waits for recommendations. If recommendation-service is down, events wait in the durable queue and Home falls back to its catalog rows.
+- **At-least-once delivery, processed exactly once in effect:** each event has a UUID `eventId`, and storing it is an idempotent insert, so redeliveries are harmless.
+- **Poison messages don't block the queue:** malformed or repeatedly failing messages move to `recommendation.playback-started.dlq` (visible in the RabbitMQ UI) after 3 attempts.
+- **Published after commit:** events are sent from a `@TransactionalEventListener(AFTER_COMMIT)`, so consumers never hear about a session that was rolled back. Publishing is best effort; a transactional outbox would make it guaranteed.
+- **Versioned JSON contract** (`type`, `version`): each service keeps its own copy of the event record instead of sharing a Java library.
+- **Clear ownership:** recommendation-service owns *behaviour* (who watched what, what's popular); content-service owns the *catalog* (titles, genres, similarity, maturity filtering). The web app combines the two.
 
 **How a request flows**
 
@@ -124,8 +156,8 @@ sequenceDiagram
 | `content-service` | Catalog, seasons/episodes, search, similar titles, My List, progress, Continue Watching, admin catalog | internal `8085` |
 | `streaming-service` | Playback sessions, entitlement check, signed media URLs | internal `8083` |
 | `payment-service` | Plans, test-mode billing, payment history, Stripe webhooks, internal entitlements | internal `8082` |
-| `recommendation-service` | Per-account recommendations (owner-only reads, admin writes) | internal `8084` |
-| `postgres` / `redis` / `rabbitmq` | Data, rate-limit buckets, events | `127.0.0.1:15432` / `:16379` / `:15673` |
+| `recommendation-service` | Consumes `playback.started` events; serves *Because you watched* signals and popular titles; per-account recommendation records | internal `8084` |
+| `postgres` / `redis` / `rabbitmq` | Data, rate-limit buckets, playback events (+ dead-letter queue) | `127.0.0.1:15432` / `:16379` / `:15673` |
 | `mailpit` | Local inbox for account emails | `127.0.0.1:8025` |
 
 Every container has a healthcheck, a restart policy, log rotation and a memory limit. Infrastructure ports bind to `127.0.0.1` only; PostgreSQL, Redis and RabbitMQ use non-default host ports (15432, 16379, 15673) so they never clash with local installs, and every host port is configurable in `.env`.
@@ -137,7 +169,7 @@ Every container has a healthcheck, a restart policy, log rotation and a memory l
 | Frontend | Next.js 16 (App Router, standalone output), React 19, TypeScript, Tailwind CSS 4, hls.js |
 | Gateway | Spring Cloud Gateway (WebFlux), Redis rate limiter, JJWT |
 | Services | Java 17, Spring Boot 3.2, Spring Data JPA, Spring Security (user-service), Flyway |
-| Infrastructure | PostgreSQL 16, Redis 7, RabbitMQ 3.13, Eureka, Mailpit |
+| Infrastructure | PostgreSQL 16, Redis 7, RabbitMQ 3.13 (topic exchange, retries, DLQ), Eureka, Mailpit |
 | Delivery | Docker (BuildKit cache, layered jars, non-root), Docker Compose, GitHub Actions, GHCR |
 
 ## Run it locally
@@ -160,7 +192,7 @@ docker compose ps             # wait until services show "healthy"
 | RabbitMQ UI (`guest` / `guest`) | http://localhost:15672 |
 | Gateway health | http://localhost:8080/actuator/health |
 
-**Try it:** sign up → pick a profile → press Play (you'll be asked for a plan) → choose a plan and *approve the test payment* → watch, leave, and come back to *Continue Watching*.
+**Try it:** sign up → pick a profile → press Play (you'll be asked for a plan) → choose a plan and *approve the test payment* → watch, leave, and come back to *Continue Watching* and *Because you watched*. In the RabbitMQ UI (http://localhost:15672) you can see the `recommendation.playback-started` queue and its dead-letter queue.
 
 **Default admin** (local only, change it in `.env`): `admin@movento.local` / `Admin123!local`. It is created at startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`; signing up can never grant admin rights.
 
@@ -215,6 +247,7 @@ All routes go through the gateway at `/api/v1`.
 | Catalog (optional auth) | `GET catalog/home`, `catalog/titles?type=&genre=&q=&ids=&page=&size=`, `catalog/search?q=`, `catalog/titles/{slug}`, `…/{slug}/episodes`, `…/{slug}/similar` |
 | Library (profile) | `GET library/continue-watching`, `GET library/watchlist/titles`, `GET/PUT/DELETE library/watchlist/{id}`, `GET/PUT library/progress/{id}` |
 | Playback | `POST playback/{titleId}/session`, `POST playback/sessions/{id}/complete`, `GET media/{session}/{title}/master.m3u8?exp=&sig=` |
+| Recommendations (profile) | `GET recommendations/because-you-watched`, `GET recommendations/popular?days=&limit=` |
 | Billing | `GET billing/plans`, `GET billing/subscription`, `GET billing/payments`, `POST billing/checkout`, `billing/change-plan`, `billing/cancel`, `billing/resume` |
 | Admin | `POST/PUT/DELETE admin/catalog/…`, `POST admin/catalog/{id}/publish` |
 
@@ -229,7 +262,7 @@ movento/
 ├── content-service/         catalog, episodes, library, caching (Flyway V1–V10)
 ├── streaming-service/       playback sessions, entitlement check, signed media URLs
 ├── payment-service/         plans, test-mode billing, Stripe webhooks
-├── recommendation-service/  recommendations
+├── recommendation-service/  playback-event consumer, viewing signals, popular titles (Flyway V1–V2)
 ├── docker/                  shared Dockerfile for every Spring service
 ├── docker-compose.yml       local stack
 ├── docker-compose.prod.yml  optional single-server overlay (Caddy HTTPS, GHCR images)
@@ -250,10 +283,10 @@ On Windows, `scripts/local-ci.ps1` runs the same checks as CI. If antivirus HTTP
 
 ## CI/CD (GitHub Actions)
 
-1. **backend:** `./mvnw verify` (unit tests include signed media URLs, the plan gate and refresh-token reuse).
+1. **backend:** `./mvnw verify` (unit tests include signed media URLs, the plan gate, refresh-token reuse, the playback event producer and the idempotent consumer).
 2. **frontend:** lint, typecheck, production build.
 3. **docker:** builds all 8 images with a GitHub Actions cache, and publishes them to `ghcr.io/<owner>/movento/<service>` on pushes to the release branch, to `main`, or on `v*` tags.
-4. **compose:** starts the full stack and smoke-tests it: routing, Eureka registration, spoofed headers rejected, home feed and episodes, **login rate limiting (429)**, **playback refused without a plan (402)**, test-mode checkout, then a signed manifest URL.
+4. **compose:** starts the full stack and smoke-tests it: routing, Eureka registration, spoofed headers rejected, home feed and episodes, **login rate limiting (429)**, **playback refused without a plan (402)**, test-mode checkout, a signed manifest URL, then the **event flow end to end** (playback → RabbitMQ → *Because you watched* and popular) with an empty dead-letter queue.
 
 ## Optional: single-server deployment
 

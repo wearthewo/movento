@@ -44,6 +44,7 @@ public class PlaybackController {
         StreamingSessionRequest request = new StreamingSessionRequest();
         request.setUserId(accountId);
         request.setContentId(assetId);
+        request.setProfileId(profileId);
         StreamingSessionResponse session = sessions.createSession(request);
         long expires = Instant.now().getEpochSecond() + urlTtlSeconds;
         String manifestUrl = "/api/media/" + session.getId() + "/" + assetId + "/master.m3u8?exp=" + expires
