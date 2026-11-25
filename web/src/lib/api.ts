@@ -139,21 +139,24 @@ export async function getBehaviouralRails(): Promise<{ becauseYouWatched?: HomeR
     gatewayFetch<{ contentId: number; plays: number }[]>("/api/v1/recommendations/popular?days=7&limit=10").catch(() => []),
   ]);
 
-  let becauseYouWatched: HomeRail | undefined;
-  if (signal?.seedContentId) {
-    const seed = await getTitleById(String(signal.seedContentId));
-    if (seed) {
-      const watched = new Set(signal.watchedContentIds.map(String));
-      const items = (await getSimilar(seed.slug)).filter((title) => !watched.has(title.id));
-      if (items.length >= 2) becauseYouWatched = { id: "because-you-watched", title: `Because you watched ${seed.title}`, items };
-    }
-  }
-
-  let topTen: Title[] | undefined;
-  if (popular.length >= 3) {
-    const ids = popular.map((entry) => entry.contentId).join(",");
-    const titles = await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${ids}`).catch(() => []);
-    if (titles.length >= 3) topTen = titles.slice(0, 10);
-  }
+  // Both follow-up lookups run in parallel, one round trip each.
+  const [becauseYouWatched, topTen] = await Promise.all([
+    (async (): Promise<HomeRail | undefined> => {
+      if (!signal?.seedContentId) return undefined;
+      const exclude = signal.watchedContentIds.slice(0, 50).join(",");
+      const result = await catalogFetch<{ seed: Title; items: Title[] }>(
+        `/api/v1/catalog/titles/by-id/${signal.seedContentId}/similar${exclude ? `?exclude=${exclude}` : ""}`,
+      ).catch(() => null);
+      return result && result.items.length >= 2
+        ? { id: "because-you-watched", title: `Because you watched ${result.seed.title}`, items: result.items }
+        : undefined;
+    })(),
+    (async (): Promise<Title[] | undefined> => {
+      if (popular.length < 3) return undefined;
+      const ids = popular.map((entry) => entry.contentId).join(",");
+      const titles = await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${ids}`).catch(() => []);
+      return titles.length >= 3 ? titles.slice(0, 10) : undefined;
+    })(),
+  ]);
   return { becauseYouWatched, topTen };
 }

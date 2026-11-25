@@ -47,8 +47,20 @@ public class CatalogService {
 
     private record CachedFeed(HomeFeed feed, java.time.Instant expiresAt) {}
 
+    /**
+     * The visible catalog per maturity level (titles with genres already loaded), shared by browse, genre,
+     * "More like this" and "Because you watched" requests, so those no longer run two catalog-wide queries
+     * each time. Entries are read-only snapshots and expire with the home feed.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<MaturityPolicy, CachedCatalog> catalogCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record CachedCatalog(List<Content> items, java.time.Instant expiresAt) {}
+
+    public record SimilarTo(CatalogTitleResponse seed, List<CatalogTitleResponse> items) {}
+
     public void invalidate() {
         homeCache.clear();
+        catalogCache.clear();
     }
 
     public record Rail(String id, String title, String kind, List<CatalogTitleResponse> items) {}
@@ -117,10 +129,26 @@ public class CatalogService {
 
     /** Titles sharing the most genres with the given one, ties broken by trending and recency. */
     public List<CatalogTitleResponse> similar(MaturityPolicy policy, String slug) {
-        Content base = find(policy, slug);
+        Content base = visible(policy).stream().filter(c -> slug.equals(c.getSlug())).findFirst()
+                .orElseGet(() -> find(policy, slug));
+        return similarTo(policy, base, Set.of());
+    }
+
+    /**
+     * "Because you watched": the seed title plus similar titles, minus ones the profile already started,
+     * in a single call (the web app used to need two sequential round trips for this).
+     */
+    public SimilarTo similarById(MaturityPolicy policy, Long id, Set<Long> exclude) {
+        Content base = visible(policy).stream().filter(c -> c.getId().equals(id)).findFirst()
+                .orElseThrow(() -> new NoSuchElementException("content " + id));
+        return new SimilarTo(map(base), similarTo(policy, base, exclude));
+    }
+
+    private List<CatalogTitleResponse> similarTo(MaturityPolicy policy, Content base, Set<Long> exclude) {
         Set<Long> genres = base.getGenres().stream().map(Genre::getId).collect(Collectors.toSet());
         return visible(policy).stream()
                 .filter(c -> !c.getId().equals(base.getId()))
+                .filter(c -> !exclude.contains(c.getId()))
                 .map(c -> Map.entry(c, c.getGenres().stream().filter(g -> genres.contains(g.getId())).count()))
                 .filter(e -> e.getValue() > 0)
                 .sorted(Comparator.<Map.Entry<Content, Long>>comparingLong(Map.Entry::getValue).reversed()
@@ -159,6 +187,14 @@ public class CatalogService {
     }
 
     private List<Content> visible(MaturityPolicy policy) {
+        CachedCatalog cached = catalogCache.get(policy);
+        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.items();
+        List<Content> items = loadVisible(policy);
+        catalogCache.put(policy, new CachedCatalog(items, java.time.Instant.now().plus(HOME_TTL)));
+        return items;
+    }
+
+    private List<Content> loadVisible(MaturityPolicy policy) {
         List<Long> ids = content.findActiveIdsNewestFirst(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT));
         if (ids.isEmpty()) return List.of();
         Map<Long, Content> byId = content.findByIds(ids).stream().collect(Collectors.toMap(Content::getId, c -> c));
