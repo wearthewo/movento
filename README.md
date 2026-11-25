@@ -205,6 +205,29 @@ docker compose down                                        # stop, keep data
 docker compose down -v                                     # stop and reset all data
 ```
 
+### Watching it work
+
+Every service writes short, readable log lines. Ids are logged, never emails, passwords or tokens.
+
+```bash
+docker compose logs -f api-gateway                              # one line per request: GET /path -> 200 in 14 ms [req=…]
+docker compose logs -f user-service payment-service             # sign-ins, lockouts, profiles, test payments, plan changes
+docker compose logs -f streaming-service recommendation-service # playback events: published -> consumed
+```
+
+```text
+user-service-1            | Signed in account=3
+user-service-1            | Profile selected account=3 profile=9c1e… maturity=ADULT
+payment-service-1         | TEST MODE payment approved account=3 plan=premium amount=19.99 EUR payment=test_pi_… -> plan active until …
+payment-service-1         | Entitlement check account=3 active=true plan=premium
+streaming-service-1       | Published playback.started event=3f2a… session=12 account=3 profile=9c1e… content=7
+recommendation-service-1  | Consumed playback.started event=3f2a… profile=9c1e… content=7 -> viewing signal stored
+```
+
+- To follow one request across services, take its `req=…` id from the gateway line and search all logs for it.
+- To see the raw events, open the RabbitMQ UI and bind a temporary queue to the `streaming.events` exchange with routing key `#`, then use *Get messages*.
+- To see SQL, set `HIBERNATE_SQL_LOG_LEVEL=DEBUG` for content-service.
+
 ## Test-mode payments
 
 - With `STRIPE_PRICE_ID` **empty** (the default), payment-service runs in **test mode**. Plans are activated with simulated payments: choose *Subscribe — approve test payment* or *Simulate declined payment*. There is no card form; payments are saved with `test_pi_…` IDs and a `TEST MODE — … (no real money)` description.

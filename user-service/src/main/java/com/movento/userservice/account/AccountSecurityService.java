@@ -20,6 +20,7 @@ import java.util.UUID;
  * Brute-force lockout, email verification and password reset.
  * Responses never reveal whether an email is registered (forgot-password / resend always succeed).
  */
+@lombok.extern.slf4j.Slf4j
 @Service
 @RequiredArgsConstructor
 public class AccountSecurityService {
@@ -59,6 +60,7 @@ public class AccountSecurityService {
         users.findByEmail(email).ifPresent(user -> {
             Instant until = user.getLockedUntil();
             if (until != null && until.isAfter(Instant.now())) {
+                log.warn("Sign-in refused: account={} is locked until {}", user.getId(), until);
                 throw new AccountLockedException(Duration.between(Instant.now(), until).toMinutes() + 1);
             }
         });
@@ -67,14 +69,17 @@ public class AccountSecurityService {
     /** Own transaction so the counter survives the failed authentication. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailedLogin(String email) {
-        users.findByEmail(email).ifPresent(user -> {
+        users.findByEmail(email).ifPresentOrElse(user -> {
             int failures = user.getFailedLoginAttempts() + 1;
             user.setFailedLoginAttempts(failures);
             if (failures >= maxFailedLogins) {
                 user.setLockedUntil(Instant.now().plus(Duration.ofMinutes(lockoutMinutes)));
                 user.setFailedLoginAttempts(0);
+                log.warn("Account locked account={} for {} minutes after {} failed sign-ins", user.getId(), lockoutMinutes, failures);
+            } else {
+                log.info("Failed sign-in account={} attempt {}/{}", user.getId(), failures, maxFailedLogins);
             }
-        });
+        }, () -> log.info("Failed sign-in for an unknown email"));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -93,6 +98,7 @@ public class AccountSecurityService {
     public void sendVerification(User user) {
         if (user.isEmailVerified()) return;
         mailer.sendVerification(user.getEmail(), user.getFirstName(), issue(user, AccountToken.Purpose.VERIFY_EMAIL, VERIFY_TTL));
+        log.info("Verification email sent account={}", user.getId());
     }
 
     @Transactional
@@ -104,14 +110,17 @@ public class AccountSecurityService {
     public void verifyEmail(String rawToken) {
         User user = consume(rawToken, AccountToken.Purpose.VERIFY_EMAIL);
         user.setEmailVerified(true);
+        log.info("Email verified account={}", user.getId());
     }
 
     // ---- password reset ------------------------------------------------------------------------
 
     @Transactional
     public void requestPasswordReset(String email) {
-        users.findByEmail(normalize(email)).ifPresent(user ->
-                mailer.sendPasswordReset(user.getEmail(), user.getFirstName(), issue(user, AccountToken.Purpose.RESET_PASSWORD, RESET_TTL)));
+        users.findByEmail(normalize(email)).ifPresentOrElse(user -> {
+            mailer.sendPasswordReset(user.getEmail(), user.getFirstName(), issue(user, AccountToken.Purpose.RESET_PASSWORD, RESET_TTL));
+            log.info("Password reset email sent account={}", user.getId());
+        }, () -> log.info("Password reset requested for an unknown email (no email sent)"));
     }
 
     /** Sets the new password, clears any lockout and signs the account out of every device. */
@@ -122,7 +131,8 @@ public class AccountSecurityService {
         user.setFailedLoginAttempts(0);
         user.setLockedUntil(null);
         user.setEmailVerified(true); // they proved they own the inbox
-        refreshTokens.revokeAllForUser(user.getId(), Instant.now());
+        int revoked = refreshTokens.revokeAllForUser(user.getId(), Instant.now());
+        log.info("Password reset account={}: lockout cleared, {} session(s) signed out", user.getId(), revoked);
     }
 
     // ---- tokens --------------------------------------------------------------------------------

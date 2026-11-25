@@ -17,6 +17,7 @@ import java.util.UUID;
  * the caller only chooses the outcome ("success" or "decline"), mirroring Stripe's test cards.
  * Every record is marked test_* so it can never be mistaken for a real charge.
  */
+@lombok.extern.slf4j.Slf4j
 @Service
 @RequiredArgsConstructor
 public class TestModeBilling {
@@ -55,13 +56,23 @@ public class TestModeBilling {
         } else if (subscription.getStatus() == Subscription.Status.ACTIVE) {
             subscription.setStatus(Subscription.Status.PAST_DUE);
         }
-        return subscriptions.save(subscription);
+        Subscription saved = subscriptions.save(subscription);
+        if (outcome == Outcome.SUCCESS) {
+            log.info("TEST MODE payment approved account={} plan={} amount={} {} payment={} -> plan active until {}",
+                    accountId, plan.id(), plan.monthlyPrice(), plan.currency(), payment.getPaymentIntentId(), saved.getCurrentPeriodEnd());
+        } else {
+            log.warn("TEST MODE payment declined account={} plan={} payment={} -> subscription status {}",
+                    accountId, plan.id(), payment.getPaymentIntentId(), saved.getStatus());
+        }
+        return saved;
     }
 
     @Transactional
     public Subscription changePlan(Long accountId, PlanCatalog.Plan plan) {
         Subscription subscription = subscriptions.findById(accountId).orElseThrow();
+        String previous = subscription.getPlanId();
         subscription.setPlanId(plan.id());
+        log.info("Plan changed account={} {} -> {}", accountId, previous, plan.id());
         return subscription;
     }
 
@@ -69,6 +80,8 @@ public class TestModeBilling {
     public Subscription setCancelAtPeriodEnd(Long accountId, boolean cancel) {
         Subscription subscription = subscriptions.findById(accountId).orElseThrow();
         subscription.setCancelAtPeriodEnd(cancel);
+        log.info(cancel ? "Membership cancelled account={} (access until {})" : "Membership resumed account={} (renews {})",
+                accountId, subscription.getCurrentPeriodEnd());
         return subscription;
     }
 }
