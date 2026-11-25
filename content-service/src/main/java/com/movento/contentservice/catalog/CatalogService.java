@@ -47,8 +47,28 @@ public class CatalogService {
 
     private record CachedFeed(HomeFeed feed, java.time.Instant expiresAt) {}
 
+    /**
+     * The visible catalog per maturity level (titles with genres already loaded), shared by browse, genre,
+     * "More like this" and "Because you watched" requests, so those no longer run two catalog-wide queries
+     * each time. Entries are read-only snapshots and expire with the home feed.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<MaturityPolicy, CachedCatalog> catalogCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record CachedCatalog(List<Content> items, java.time.Instant expiresAt) {}
+
+    public record SimilarTo(CatalogTitleResponse seed, List<CatalogTitleResponse> items) {}
+
+    /** Episode lists per show (they change only through migrations/admin work). */
+    private final java.util.concurrent.ConcurrentHashMap<Long, CachedEpisodes> episodeCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record CachedEpisodes(List<SeasonResponse> seasons, java.time.Instant expiresAt) {}
+
+    private static final java.time.Duration EPISODES_TTL = java.time.Duration.ofMinutes(10);
+
     public void invalidate() {
         homeCache.clear();
+        catalogCache.clear();
+        episodeCache.clear();
     }
 
     public record Rail(String id, String title, String kind, List<CatalogTitleResponse> items) {}
@@ -102,28 +122,53 @@ public class CatalogService {
         return deduped.values().stream().map(this::map).toList();
     }
 
+    /** Served from the in-memory catalog snapshot; falls back to the database (and its 404 rules) otherwise. */
     public CatalogTitleResponse title(MaturityPolicy policy, String slug) {
-        return map(find(policy, slug));
+        return cachedBySlug(policy, slug).map(this::map).orElseGet(() -> map(find(policy, slug)));
     }
 
+    /** My List, Continue Watching, Top 10: mostly answered from the snapshot, database only for the rest. */
     public List<CatalogTitleResponse> byIds(MaturityPolicy policy, List<Long> ids) {
         if (ids.isEmpty()) return List.of();
-        Map<Long, Content> found = content.findByIds(ids).stream()
-                .filter(Content::isActive)
-                .filter(c -> policy.allows(c.getContentRating()))
-                .collect(Collectors.toMap(Content::getId, c -> c));
+        Map<Long, Content> found = new java.util.HashMap<>();
+        Set<Long> wanted = new java.util.HashSet<>(ids);
+        for (Content c : visible(policy)) if (wanted.contains(c.getId())) found.put(c.getId(), c);
+        List<Long> missing = ids.stream().filter(id -> !found.containsKey(id)).distinct().toList();
+        if (!missing.isEmpty()) {
+            content.findByIds(missing).stream()
+                    .filter(Content::isActive)
+                    .filter(c -> policy.allows(c.getContentRating()))
+                    .forEach(c -> found.put(c.getId(), c));
+        }
         return ids.stream().map(found::get).filter(java.util.Objects::nonNull).map(this::map).toList();
     }
 
     /** Titles sharing the most genres with the given one, ties broken by trending and recency. */
     public List<CatalogTitleResponse> similar(MaturityPolicy policy, String slug) {
-        Content base = find(policy, slug);
+        Content base = cachedBySlug(policy, slug).orElseGet(() -> find(policy, slug));
+        return similarTo(policy, base, Set.of());
+    }
+
+    /**
+     * "Because you watched": the seed title plus similar titles, minus ones the profile already started,
+     * in a single call (the web app used to need two sequential round trips for this).
+     */
+    public SimilarTo similarById(MaturityPolicy policy, Long id, Set<Long> exclude) {
+        Content base = visible(policy).stream().filter(c -> c.getId().equals(id)).findFirst()
+                .orElseThrow(() -> new NoSuchElementException("content " + id));
+        return new SimilarTo(map(base), similarTo(policy, base, exclude));
+    }
+
+    private List<CatalogTitleResponse> similarTo(MaturityPolicy policy, Content base, Set<Long> exclude) {
         Set<Long> genres = base.getGenres().stream().map(Genre::getId).collect(Collectors.toSet());
         return visible(policy).stream()
                 .filter(c -> !c.getId().equals(base.getId()))
                 .map(c -> Map.entry(c, c.getGenres().stream().filter(g -> genres.contains(g.getId())).count()))
                 .filter(e -> e.getValue() > 0)
-                .sorted(Comparator.<Map.Entry<Content, Long>>comparingLong(Map.Entry::getValue).reversed()
+                // Titles the profile already started are not removed, only ranked last: after a lot of viewing
+                // (or testing) removing them could leave the row empty, and Netflix also re-surfaces watched titles.
+                .sorted(Comparator.<Map.Entry<Content, Long>, Boolean>comparing(e -> exclude.contains(e.getKey().getId()))
+                        .thenComparing(Comparator.<Map.Entry<Content, Long>>comparingLong(Map.Entry::getValue).reversed())
                         .thenComparing((Map.Entry<Content, Long> e) -> !e.getKey().isTrending())
                         .thenComparing((Map.Entry<Content, Long> e) -> e.getKey().getReleaseYear(), Comparator.nullsLast(Comparator.<Integer>reverseOrder())))
                 .limit(12)
@@ -132,8 +177,16 @@ public class CatalogService {
     }
 
     public List<SeasonResponse> episodes(MaturityPolicy policy, String slug) {
-        Content show = find(policy, slug);
+        Content show = cachedBySlug(policy, slug).orElseGet(() -> find(policy, slug));
         if (show instanceof Movie) return List.of();
+        CachedEpisodes cached = episodeCache.get(show.getId());
+        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.seasons();
+        List<SeasonResponse> loaded = loadEpisodes(show.getId());
+        episodeCache.put(show.getId(), new CachedEpisodes(loaded, java.time.Instant.now().plus(EPISODES_TTL)));
+        return loaded;
+    }
+
+    private List<SeasonResponse> loadEpisodes(Long showId) {
         Map<Integer, SeasonResponse> seasons = new LinkedHashMap<>();
         jdbc.query("""
                 SELECT s.season_number, s.title AS season_title, e.id, e.episode_number, e.title, e.description,
@@ -148,8 +201,14 @@ public class CatalogService {
                     String.valueOf(rs.getLong("id")), rs.getInt("episode_number"), rs.getString("title"),
                     rs.getString("description"), (Integer) rs.getObject("duration_minutes"), rs.getString("thumbnail_url"));
             seasons.computeIfAbsent(number, n -> new SeasonResponse(n, seasonTitle, new ArrayList<>())).episodes().add(episode);
-        }, show.getId());
-        return List.copyOf(seasons.values());
+        }, showId);
+        return seasons.values().stream()
+                .map(season -> new SeasonResponse(season.seasonNumber(), season.title(), List.copyOf(season.episodes())))
+                .toList();
+    }
+
+    private java.util.Optional<Content> cachedBySlug(MaturityPolicy policy, String slug) {
+        return visible(policy).stream().filter(c -> slug.equals(c.getSlug())).findFirst();
     }
 
     private Content find(MaturityPolicy policy, String slug) {
@@ -159,7 +218,19 @@ public class CatalogService {
     }
 
     private List<Content> visible(MaturityPolicy policy) {
-        return content.findAllByActiveTrueOrderByCreatedAtDesc(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT)).stream()
+        CachedCatalog cached = catalogCache.get(policy);
+        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.items();
+        List<Content> items = loadVisible(policy);
+        catalogCache.put(policy, new CachedCatalog(items, java.time.Instant.now().plus(HOME_TTL)));
+        return items;
+    }
+
+    private List<Content> loadVisible(MaturityPolicy policy) {
+        List<Long> ids = content.findActiveIdsNewestFirst(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT));
+        if (ids.isEmpty()) return List.of();
+        Map<Long, Content> byId = content.findByIds(ids).stream().collect(Collectors.toMap(Content::getId, c -> c));
+        return ids.stream().map(byId::get)
+                .filter(java.util.Objects::nonNull)
                 .filter(c -> policy.allows(c.getContentRating()))
                 .toList();
     }

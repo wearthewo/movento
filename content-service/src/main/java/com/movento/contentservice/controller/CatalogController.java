@@ -59,6 +59,15 @@ public class CatalogController {
         return catalog.episodes(MaturityPolicy.fromHeader(maturity), slug);
     }
 
+    /** Seed title + similar titles in one call; titles in {@code exclude} (already started) are ranked last, not removed. */
+    @GetMapping("/titles/by-id/{id}/similar")
+    public CatalogService.SimilarTo similarById(@RequestHeader(value = MATURITY, required = false) String maturity,
+                                                @PathVariable Long id,
+                                                @RequestParam(required = false) List<Long> exclude) {
+        java.util.Set<Long> excluded = exclude == null ? java.util.Set.of() : java.util.Set.copyOf(exclude.stream().limit(200).toList());
+        return catalog.similarById(MaturityPolicy.fromHeader(maturity), id, excluded);
+    }
+
     @GetMapping("/titles/{slug}/similar")
     public List<CatalogTitleResponse> similar(@RequestHeader(value = MATURITY, required = false) String maturity, @PathVariable String slug) {
         return catalog.similar(MaturityPolicy.fromHeader(maturity), slug);

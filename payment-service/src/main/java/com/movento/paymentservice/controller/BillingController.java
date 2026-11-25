@@ -29,6 +29,7 @@ import java.util.Map;
  * Without STRIPE_PRICE_ID the service runs in test mode: plans are "paid" with simulated payments.
  * With Stripe test keys configured, checkout goes through real Stripe Checkout in test mode.
  */
+@lombok.extern.slf4j.Slf4j
 @RestController
 @RequestMapping("/api/v1/billing")
 @RequiredArgsConstructor
@@ -88,7 +89,9 @@ public class BillingController {
                 .setClientReferenceId(String.valueOf(accountId)).putMetadata("accountId", String.valueOf(accountId)).putMetadata("planId", plan.id())
                 .addLineItem(SessionCreateParams.LineItem.builder().setPrice(priceId).setQuantity(1L).build())
                 .setSuccessUrl(webUrl + "/account?billing=success").setCancelUrl(webUrl + "/account?billing=cancelled").build();
-        return Map.of("status", "REDIRECT", "url", Session.create(params).getUrl());
+        Session session = Session.create(params);
+        log.info("Stripe checkout session created account={} plan={} session={}", accountId, plan.id(), session.getId());
+        return Map.of("status", "REDIRECT", "url", session.getUrl());
     }
 
     @PostMapping("/change-plan")

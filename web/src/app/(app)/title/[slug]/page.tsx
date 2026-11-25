@@ -6,6 +6,7 @@ import { PlaybackButton } from "@/components/playback-button";
 import { TitleCard } from "@/components/title-card";
 import { WatchlistButton } from "@/components/watchlist-button";
 import { getEpisodes, getProgress, getSimilar, getTitle, isInMyList, isSignedIn } from "@/lib/api";
+import type { ProgressItem } from "@/lib/types";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const item = await getTitle((await params).slug);
@@ -14,12 +15,18 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function Details({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const item = await getTitle(slug);
-  if (!item) notFound();
-
-  const [signedIn, seasons, similar, saved, progress] = await Promise.all([
-    isSignedIn(), item.type === "SERIES" ? getEpisodes(slug) : Promise.resolve([]), getSimilar(slug), isInMyList(item.id), getProgress(item.id),
+  // Everything that only needs the slug starts at once; My List state and the resume point start as soon
+  // as the title (and so its id) is known, without waiting for episodes or similar titles.
+  // Episodes for a movie come back as an empty list, so no need to wait for the type first.
+  const titlePromise = getTitle(slug);
+  const personalPromise: Promise<[boolean, ProgressItem | undefined]> = titlePromise.then((title) => title
+    ? Promise.all([isInMyList(title.id), getProgress(title.id)])
+    : [false, undefined]);
+  const [item, signedIn, seasons, similar, personal] = await Promise.all([
+    titlePromise, isSignedIn(), getEpisodes(slug), getSimilar(slug), personalPromise,
   ]);
+  const [saved, progress] = personal;
+  if (!item) notFound();
   const resume = progress && !progress.completed && progress.progressSeconds > 30;
   const episodeCount = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
   const playLabel = resume ? "Resume" : item.type === "SERIES" && seasons[0]?.episodes[0] ? "Play S1:E1" : "Play";

@@ -228,3 +228,6 @@ application-prod.properties
 web/.next/
 web/node_modules/
 web/.env*.local
+
+# Jars staged by CI for prebuilt Docker images
+ci-jars/

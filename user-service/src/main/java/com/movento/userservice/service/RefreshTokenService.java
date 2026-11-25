@@ -15,6 +15,7 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 @Service @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class RefreshTokenService {
  private final RefreshTokenRepository tokens;
  @Value("${spring.security.jwt.refresh-expiration-ms:2592000000}") private long lifetime;
@@ -28,8 +29,13 @@ public class RefreshTokenService {
   RefreshToken current=tokens.findByTokenHash(hash(raw)).orElseThrow(InvalidRefreshTokenException::new);
   if(current.getRevokedAt()!=null) {
    // Parallel requests from the same browser can present the same token a moment apart: allow a short grace window.
-   if(current.getRevokedAt().isAfter(Instant.now().minus(REUSE_GRACE))) return new Rotation(current.getUser(), issue(current.getUser()));
-   tokens.revokeAllForUser(current.getUser().getId(), Instant.now()); throw new InvalidRefreshTokenException();
+   if(current.getRevokedAt().isAfter(Instant.now().minus(REUSE_GRACE))) {
+    log.debug("Refresh token reused within grace window (parallel request) account={}", current.getUser().getId());
+    return new Rotation(current.getUser(), issue(current.getUser()));
+   }
+   int revoked = tokens.revokeAllForUser(current.getUser().getId(), Instant.now());
+   log.warn("Refresh token REUSE detected account={}: possible theft, revoked {} active session(s)", current.getUser().getId(), revoked);
+   throw new InvalidRefreshTokenException();
   }
   if(current.getExpiresAt().isBefore(Instant.now())) throw new InvalidRefreshTokenException(); current.setRevokedAt(Instant.now()); return new Rotation(current.getUser(), issue(current.getUser())); }
  @Transactional public void revoke(String raw) { tokens.findByTokenHash(hash(raw)).ifPresent(t -> t.setRevokedAt(Instant.now())); }

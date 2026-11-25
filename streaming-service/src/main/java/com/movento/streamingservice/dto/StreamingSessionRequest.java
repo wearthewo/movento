@@ -13,4 +13,7 @@ public class StreamingSessionRequest {
 
     @NotNull
     private Long contentId;
+
+    /** Viewer profile from the gateway's X-Profile-Id header; optional. */
+    private String profileId;
 }

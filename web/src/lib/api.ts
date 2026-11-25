@@ -1,7 +1,8 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { demoFeed, demoTitles } from "./demo-data";
 import { ACCESS_COOKIE, gatewayUrl } from "./session";
-import type { ContinueWatchingItem, CurrentUser, HomeFeed, PaymentRecord, Plan, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
+import type { ContinueWatchingItem, CurrentUser, HomeFeed, HomeRail, PaymentRecord, Plan, ProgressItem, Season, SubscriptionState, Title, ViewerProfile } from "./types";
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 
@@ -41,9 +42,7 @@ async function catalogFetch<T>(path: string): Promise<T> {
   return (await accessToken()) ? gatewayFetch<T>(path) : publicGatewayFetch<T>(path);
 }
 
-export async function isSignedIn() {
-  return Boolean(await accessToken());
-}
+export const isSignedIn = cache(async () => Boolean(await accessToken()));
 
 export async function getHomeFeed(): Promise<HomeFeed> {
   try { return await catalogFetch("/api/v1/catalog/home"); } catch { return demoFeed; }
@@ -63,15 +62,16 @@ export async function searchTitles(query: string): Promise<Title[]> {
   }
 }
 
-export async function getTitle(slug: string): Promise<Title | undefined> {
+// cache(): one request per render even when both generateMetadata and the page ask for the same title.
+export const getTitle = cache(async (slug: string): Promise<Title | undefined> => {
   try { return await catalogFetch(`/api/v1/catalog/titles/${encodeURIComponent(slug)}`); }
   catch { return demoTitles.find((x) => x.slug === slug); }
-}
+});
 
-export async function getTitleById(id: string): Promise<Title | undefined> {
+export const getTitleById = cache(async (id: string): Promise<Title | undefined> => {
   try { return (await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${encodeURIComponent(id)}`))[0]; }
   catch { return demoTitles.find((x) => x.id === id); }
-}
+});
 
 export async function getEpisodes(slug: string): Promise<Season[]> {
   try { return await catalogFetch(`/api/v1/catalog/titles/${encodeURIComponent(slug)}/episodes`); } catch { return []; }
@@ -125,4 +125,38 @@ export async function getPayments(): Promise<PaymentRecord[]> {
 
 export async function getCurrentUser(): Promise<CurrentUser | undefined> {
   try { return await gatewayFetch("/api/v1/users/me"); } catch { return undefined; }
+}
+
+/**
+ * Rows driven by viewing events: recommendation-service records every playback start (via RabbitMQ)
+ * and tells us what this profile watched last and what is popular. content-service then supplies the
+ * titles, ranked by shared genres and filtered for the profile's maturity level.
+ */
+export async function getBehaviouralRails(): Promise<{ becauseYouWatched?: HomeRail; topTen?: Title[] }> {
+  if (!(await isSignedIn())) return {};
+  const [signal, popular] = await Promise.all([
+    gatewayFetch<{ seedContentId: number | null; watchedContentIds: number[] }>("/api/v1/recommendations/because-you-watched").catch(() => null),
+    gatewayFetch<{ contentId: number; plays: number }[]>("/api/v1/recommendations/popular?days=7&limit=10").catch(() => []),
+  ]);
+
+  // Both follow-up lookups run in parallel, one round trip each.
+  const [becauseYouWatched, topTen] = await Promise.all([
+    (async (): Promise<HomeRail | undefined> => {
+      if (!signal?.seedContentId) return undefined;
+      const exclude = signal.watchedContentIds.slice(0, 50).join(",");
+      const result = await catalogFetch<{ seed: Title; items: Title[] }>(
+        `/api/v1/catalog/titles/by-id/${signal.seedContentId}/similar${exclude ? `?exclude=${exclude}` : ""}`,
+      ).catch(() => null);
+      return result && result.items.length >= 2
+        ? { id: "because-you-watched", title: `Because you watched ${result.seed.title}`, items: result.items }
+        : undefined;
+    })(),
+    (async (): Promise<Title[] | undefined> => {
+      if (popular.length < 3) return undefined;
+      const ids = popular.map((entry) => entry.contentId).join(",");
+      const titles = await catalogFetch<Title[]>(`/api/v1/catalog/titles?ids=${ids}`).catch(() => []);
+      return titles.length >= 3 ? titles.slice(0, 10) : undefined;
+    })(),
+  ]);
+  return { becauseYouWatched, topTen };
 }

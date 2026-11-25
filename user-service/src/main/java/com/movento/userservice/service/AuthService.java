@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@lombok.extern.slf4j.Slf4j
 @Service
 public class AuthService {
 
@@ -65,13 +66,14 @@ public class AuthService {
         try {
             authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(email, loginRequest.getPassword()));
         } catch (BadCredentialsException badCredentials) {
-            accountSecurity.recordFailedLogin(email);
+            accountSecurity.recordFailedLogin(email); // logs the attempt (without the email)
             throw badCredentials;
         }
         accountSecurity.recordSuccessfulLogin(email);
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
         UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+        log.info("Signed in account={}", userDetails.getId());
         String jwt = jwtUtils.generateToken(userDetails);
         List<String> roles = userDetails.getAuthorities().stream()
             .map(GrantedAuthority::getAuthority)
@@ -98,10 +100,15 @@ public class AuthService {
             : viewerProfiles.findByIdAndUserId(profileId, details.getId()).orElse(null);
         JwtResponse response = new JwtResponse(jwtUtils.generateToken(details, profile), details.getId(), details.getEmail(), details.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList());
         response.setExpiresIn(jwtUtils.getExpirationSeconds());
-        response.setRefreshToken(rotation.token()); return response;
+        response.setRefreshToken(rotation.token());
+        log.info("Session refreshed account={} profile={}", details.getId(), profile == null ? "-" : profile.getId());
+        return response;
     }
 
-    public void logout(String rawToken) { refreshTokens.revoke(rawToken); }
+    public void logout(String rawToken) {
+        refreshTokens.revoke(rawToken);
+        log.info("Signed out: refresh token revoked");
+    }
 
     @Transactional
     public JwtResponse registerUser(SignupRequest signUpRequest) {
@@ -128,6 +135,7 @@ public class AuthService {
         profile.setUser(user); profile.setName(signUpRequest.getFirstName().trim()); profile.setMaturityLevel("ADULT");
         viewerProfiles.save(profile);
         accountSecurity.sendVerification(user);
+        log.info("Account created account={} profile={}", user.getId(), profile.getId());
         return authenticateUser(new LoginRequest(normalizedEmail, signUpRequest.getPassword()));
     }
 }

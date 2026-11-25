@@ -82,7 +82,7 @@ services:
   service-registry:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/service-registry:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: service-registry}}
+    build: {<<: *java-build, args: {SERVICE: service-registry, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"}
     ports: ["127.0.0.1:${EUREKA_HOST_PORT:-8761}:8761"]
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -90,7 +90,7 @@ services:
   user-service:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/user-service:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: user-service}}
+    build: {<<: *java-build, args: {SERVICE: user-service, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {<<: *service-env, DB_NAME: movento_user_db, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@movento.local}", ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin123!local}", MAIL_HOST: mailpit, MAIL_PORT: 1025, WEB_URL: "${WEB_URL:-http://localhost:3000}"}
     depends_on: {postgres: {condition: service_healthy}, mailpit: {condition: service_started}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -98,7 +98,7 @@ services:
   content-service:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/content-service:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: content-service}}
+    build: {<<: *java-build, args: {SERVICE: content-service, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {<<: *service-env, DB_NAME: movento_content_db, USER_SERVICE_URL: "http://user-service:8081"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -106,7 +106,7 @@ services:
   streaming-service:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/streaming-service:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: streaming-service}}
+    build: {<<: *java-build, args: {SERVICE: streaming-service, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {<<: *service-env, DB_NAME: movento_streaming_db, MEDIA_BASE_URL: "${MEDIA_BASE_URL:-https://test-streams.mux.dev/x36xhzz}", MEDIA_SIGNING_SECRET: "${MEDIA_SIGNING_SECRET:-local-media-signing-secret-change-me}", PLAYBACK_REQUIRE_SUBSCRIPTION: "${PLAYBACK_REQUIRE_SUBSCRIPTION:-true}"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -114,7 +114,7 @@ services:
   recommendation-service:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/recommendation-service:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: recommendation-service}}
+    build: {<<: *java-build, args: {SERVICE: recommendation-service, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {<<: *service-env, DB_NAME: movento_recommendation_db}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -122,7 +122,7 @@ services:
   payment-service:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/payment-service:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: payment-service}}
+    build: {<<: *java-build, args: {SERVICE: payment-service, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {<<: *service-env, DB_NAME: movento_payment_db, STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_placeholder}", STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}", STRIPE_PRICE_ID: "${STRIPE_PRICE_ID:-}", WEB_URL: "${WEB_URL:-http://localhost:3000}"}
     depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}, rabbitmq: {condition: service_healthy}, service-registry: {condition: service_healthy}}
     healthcheck: {test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health/liveness"], interval: 10s, timeout: 5s, retries: 30, start_period: 40s}
@@ -130,7 +130,7 @@ services:
   api-gateway:
     <<: *java-service
     image: ${IMAGE_REGISTRY:-movento}/api-gateway:${IMAGE_TAG:-local}
-    build: {<<: *java-build, args: {SERVICE: api-gateway}}
+    build: {<<: *java-build, args: {SERVICE: api-gateway, JAR_SOURCE: "${JAR_SOURCE:-build}"}}
     environment: {EUREKA_URL: "http://service-registry:8761/eureka/", REDIS_HOST: redis, JWT_SECRET: "${JWT_SECRET:-local-development-secret-key-at-least-32-bytes}", JWT_ISSUER: movento, CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"}
     ports: ["127.0.0.1:${GATEWAY_HOST_PORT:-8080}:8080"]
     depends_on: {redis: {condition: service_healthy}, service-registry: {condition: service_healthy}}
@@ -143,6 +143,8 @@ services:
     logging: *logging
     ports: ["${WEB_HOST_PORT:-3000}:3000"]
     environment: {GATEWAY_URL: "http://api-gateway:8080", NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL:-http://localhost:3000}", COOKIE_SECURE: "${COOKIE_SECURE:-false}"}
+    # Keeps resized images between rebuilds, so the billboard isn't re-downloaded and re-encoded each time.
+    volumes: ["web_image_cache:/app/.next/cache"]
     depends_on: {api-gateway: {condition: service_healthy}}
 
-volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}}
+volumes: {postgres_data: {}, redis_data: {}, rabbitmq_data: {}, web_image_cache: {}}

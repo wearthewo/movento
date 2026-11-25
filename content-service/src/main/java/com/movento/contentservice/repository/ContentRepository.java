@@ -27,9 +27,12 @@ public interface ContentRepository extends BaseRepository<Content, Long> {
     @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "genres")
     Optional<Content> findBySlugAndActiveTrue(String slug);
 
-    /** Whole active catalog with genres in one query; the home feed groups it in memory. */
-    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "genres")
-    List<Content> findAllByActiveTrueOrderByCreatedAtDesc(Pageable pageable);
+    /**
+     * Newest active ids, paged in the database. Fetching genres is a second step ({@link #findByIds}), because
+     * paging a collection fetch join makes Hibernate load everything and page in memory (HHH90003004).
+     */
+    @Query("SELECT c.id FROM Content c WHERE c.active = true ORDER BY c.createdAt DESC")
+    List<Long> findActiveIdsNewestFirst(Pageable pageable);
     Page<Content> findByActiveTrue(Pageable pageable);
     Page<Content> findByActiveTrueAndTitleContainingIgnoreCase(String query, Pageable pageable);
     List<Content> findTop12ByActiveTrueAndTrendingTrueOrderByCreatedAtDesc();

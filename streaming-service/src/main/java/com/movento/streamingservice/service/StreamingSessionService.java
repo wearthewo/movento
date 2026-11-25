@@ -4,11 +4,11 @@ import com.movento.streamingservice.dto.StreamingSessionRequest;
 import com.movento.streamingservice.dto.StreamingSessionResponse;
 import com.movento.streamingservice.model.StreamingSession;
 import com.movento.streamingservice.repository.StreamingSessionRepository;
+import com.movento.streamingservice.events.PlaybackEvent;
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,11 +21,8 @@ import java.util.stream.Collectors;
 public class StreamingSessionService {
 
     private final StreamingSessionRepository repository;
-    private final RabbitTemplate rabbitTemplate;
-    @Value("${app.messaging.exchange}")
-    private String exchange;
-    @Value("${app.messaging.routing-key}")
-    private String routingKey;
+    /** Events are handed to PlaybackEventPublisher, which sends them to RabbitMQ after commit. */
+    private final ApplicationEventPublisher events;
 
     @Cacheable(value = "streamingSessions", key = "#id")
     @Transactional(readOnly = true)
@@ -50,7 +47,7 @@ public class StreamingSessionService {
         session.setStatus(StreamingSession.SessionStatus.ACTIVE);
         session.setStartedAt(Instant.now());
         StreamingSession saved = repository.save(session);
-        publishEvent("STREAMING_SESSION_CREATED", saved);
+        events.publishEvent(PlaybackEvent.of(PlaybackEvent.STARTED, saved.getId(), saved.getUserId(), request.getProfileId(), saved.getContentId()));
         return mapToResponse(saved);
     }
 
@@ -62,7 +59,7 @@ public class StreamingSessionService {
         session.setStatus(StreamingSession.SessionStatus.ENDED);
         session.setEndedAt(Instant.now());
         StreamingSession saved = repository.save(session);
-        publishEvent("STREAMING_SESSION_ENDED", saved);
+        events.publishEvent(PlaybackEvent.of(PlaybackEvent.ENDED, saved.getId(), saved.getUserId(), null, saved.getContentId()));
         return mapToResponse(saved);
     }
 
@@ -75,10 +72,5 @@ public class StreamingSessionService {
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())
                 .build();
-    }
-
-    private void publishEvent(String type, StreamingSession session) {
-        String message = String.format("%s:%s:%s", type, session.getId(), session.getUserId());
-        rabbitTemplate.convertAndSend(exchange, routingKey, message);
     }
 }

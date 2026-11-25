@@ -39,7 +39,9 @@ export function SiteHeader({ signedIn, profile }: { signedIn: boolean; profile: 
           className={cn("transition hover:text-white/70", active ? "font-semibold text-white" : "text-white/80")}>{item.label}</Link>;
       })}
     </nav>
-    <nav aria-label="Primary mobile" className="flex gap-4 text-sm text-white/80 group-has-[form[role=search]]/header:hidden sm:group-has-[form[role=search]]/header:flex lg:hidden">
+    {/* Compact nav below lg only. While search is open on phones it hides to make room for the box.
+        (A "show again on sm" rule used to beat lg:hidden and duplicated the links on desktop.) */}
+    <nav aria-label="Primary mobile" className="flex gap-4 text-sm text-white/80 lg:hidden max-sm:group-has-[form[role=search]]/header:hidden">
       <Link href="/series" className="hidden sm:inline">Series</Link>
       <Link href="/movies" className="hidden sm:inline">Movies</Link>
       <Link href="/my-list">My List</Link>

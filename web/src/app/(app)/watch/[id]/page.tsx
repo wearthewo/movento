@@ -10,14 +10,15 @@ export default async function WatchPage({ params, searchParams }: { params: Prom
   const { ep } = await searchParams;
   if (!(await isSignedIn())) redirect(`/sign-in?next=${encodeURIComponent(`/watch/${id}${ep ? `?ep=${ep}` : ""}`)}`);
 
-  const title = await getTitleById(id);
+  // The resume point only needs the id, so fetch it alongside the title instead of after it.
+  const [title, progress] = await Promise.all([getTitleById(id), getProgress(id)]);
   if (!title) {
     return <main className="grid min-h-screen place-items-center bg-black text-center">
       <div><h1 className="text-3xl font-bold">This title isn&apos;t available</h1><Link href="/browse" className="mt-4 inline-block underline">Back to browse</Link></div>
     </main>;
   }
 
-  const [seasons, progress] = await Promise.all([title.type === "SERIES" ? getEpisodes(title.slug) : Promise.resolve([]), getProgress(id)]);
+  const seasons = title.type === "SERIES" ? await getEpisodes(title.slug) : [];
   const episodes = seasons.flatMap((season) => season.episodes.map((episode) => ({ ...episode, seasonNumber: season.seasonNumber })));
   const index = ep ? episodes.findIndex((episode) => episode.id === ep) : 0;
   const current = episodes[Math.max(index, 0)];

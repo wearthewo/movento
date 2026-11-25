@@ -155,8 +155,10 @@ management:
 # Logging Configuration
 logging:
   level:
+    # Harmless Spring Cloud LoadBalancer startup warnings ("not eligible for getting processed by all BeanPostProcessors")
+    "[org.springframework.context.support.PostProcessorRegistrationDelegate]": ERROR
     root: INFO
-    com.movento.paymentservice: DEBUG
+    com.movento.paymentservice: ${APP_LOG_LEVEL:INFO}
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
     org.elasticsearch: WARN
