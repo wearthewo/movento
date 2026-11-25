@@ -5,11 +5,19 @@ import com.movento.contentservice.model.Content;
 import com.movento.contentservice.model.Genre;
 import com.movento.contentservice.model.Movie;
 import com.movento.contentservice.repository.ContentRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -19,12 +27,18 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
  * Builds the Netflix-style home feed (billboard + rails), title lists, episodes and "More like this".
  * All reads respect the viewer profile's maturity level.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -33,42 +47,99 @@ public class CatalogService {
     private static final int RAIL_SIZE = 20;
     private static final int MIN_GENRE_RAIL = 3;
 
-    private static final java.time.Duration HOME_TTL = java.time.Duration.ofSeconds(60);
     private static final int CATALOG_SCAN_LIMIT = 500;
+
+    /** How old a snapshot may get before a request asks for a background rebuild. */
+    private static final Duration HOME_TTL = Duration.ofSeconds(60);
+    /** Background refresh cadence for maturity levels that were used recently. */
+    private static final Duration REFRESH_EVERY = Duration.ofSeconds(50);
+    /** A level nobody asked for in this long stops being refreshed (no work for an idle stack). */
+    private static final Duration KEEP_WARM_FOR = Duration.ofMinutes(10);
+    /** Older than this, a snapshot is not served while it rebuilds; the request waits for fresh data. */
+    private static final Duration MAX_STALE = Duration.ofMinutes(10);
+    /** Rebuilds slower than this are logged at INFO, faster ones at DEBUG. */
+    private static final long SLOW_REBUILD_MS = 300;
 
     private final ContentRepository content;
     private final JdbcTemplate jdbc;
 
     /**
-     * The home feed is the hottest read and identical for every viewer of a maturity level, so it is
-     * memoised for a minute per level and dropped whenever an admin changes the catalog.
+     * Per maturity level: the visible catalog (titles with genres loaded) and the home feed built from it.
+     * Browse, genre, "More like this", "Because you watched" and Home all read these read-only snapshots.
+     *
+     * <p>Stale-while-revalidate: snapshots are built at startup and refreshed in the background, so a request
+     * never waits for a rebuild unless the service has just started or an admin has just changed the catalog.
      */
-    private final java.util.concurrent.ConcurrentHashMap<MaturityPolicy, CachedFeed> homeCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<MaturityPolicy, Snapshot> snapshots = new ConcurrentHashMap<>();
 
-    private record CachedFeed(HomeFeed feed, java.time.Instant expiresAt) {}
+    private record Snapshot(List<Content> items, HomeFeed feed, Instant builtAt) {}
 
-    /**
-     * The visible catalog per maturity level (titles with genres already loaded), shared by browse, genre,
-     * "More like this" and "Because you watched" requests, so those no longer run two catalog-wide queries
-     * each time. Entries are read-only snapshots and expire with the home feed.
-     */
-    private final java.util.concurrent.ConcurrentHashMap<MaturityPolicy, CachedCatalog> catalogCache = new java.util.concurrent.ConcurrentHashMap<>();
+    /** When each level was last requested, so idle levels are not rebuilt forever. */
+    private final Map<MaturityPolicy, Instant> lastRequested = new ConcurrentHashMap<>();
+    /** Levels with a rebuild already queued or running (avoids piling up duplicate rebuilds). */
+    private final Set<MaturityPolicy> queued = ConcurrentHashMap.newKeySet();
+    /** Bumped on every catalog change; a rebuild that started before a change is not cached. */
+    private final AtomicLong generation = new AtomicLong();
 
-    private record CachedCatalog(List<Content> items, java.time.Instant expiresAt) {}
+    private final ScheduledExecutorService refresher = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "catalog-refresh");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public record SimilarTo(CatalogTitleResponse seed, List<CatalogTitleResponse> items) {}
 
     /** Episode lists per show (they change only through migrations/admin work). */
-    private final java.util.concurrent.ConcurrentHashMap<Long, CachedEpisodes> episodeCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<Long, CachedEpisodes> episodeCache = new ConcurrentHashMap<>();
 
-    private record CachedEpisodes(List<SeasonResponse> seasons, java.time.Instant expiresAt) {}
+    private record CachedEpisodes(List<SeasonResponse> seasons, Instant expiresAt) {}
 
-    private static final java.time.Duration EPISODES_TTL = java.time.Duration.ofMinutes(10);
+    private static final Duration EPISODES_TTL = Duration.ofMinutes(10);
 
+    /** Build every level once at startup, then keep the levels in use fresh in the background. */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUp() {
+        Instant now = Instant.now();
+        for (MaturityPolicy policy : MaturityPolicy.values()) {
+            lastRequested.putIfAbsent(policy, now);
+            scheduleRefresh(policy);
+        }
+        refresher.scheduleWithFixedDelay(this::refreshActive,
+                REFRESH_EVERY.toSeconds(), REFRESH_EVERY.toSeconds(), TimeUnit.SECONDS);
+    }
+
+    @PreDestroy
+    void stopRefresher() {
+        refresher.shutdownNow();
+    }
+
+    /**
+     * Called by admin edits. Inside a transaction the snapshots are dropped only after commit, so a rebuild
+     * can never cache the pre-edit catalog; then the levels in use are rebuilt in the background.
+     */
     public void invalidate() {
-        homeCache.clear();
-        catalogCache.clear();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    invalidateNow();
+                }
+            });
+        } else {
+            invalidateNow();
+        }
+    }
+
+    private void invalidateNow() {
+        synchronized (snapshots) {
+            generation.incrementAndGet();
+            snapshots.clear();
+        }
         episodeCache.clear();
+        Instant cutoff = Instant.now().minus(KEEP_WARM_FOR);
+        lastRequested.forEach((policy, at) -> {
+            if (at.isAfter(cutoff)) scheduleRefresh(policy);
+        });
     }
 
     public record Rail(String id, String title, String kind, List<CatalogTitleResponse> items) {}
@@ -77,16 +148,13 @@ public class CatalogService {
     public record SeasonResponse(int seasonNumber, String title, List<EpisodeResponse> episodes) {}
 
     public HomeFeed home(MaturityPolicy policy) {
-        CachedFeed cached = homeCache.get(policy);
-        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.feed();
-        HomeFeed feed = buildHome(policy);
-        homeCache.put(policy, new CachedFeed(feed, java.time.Instant.now().plus(HOME_TTL)));
+        HomeFeed feed = snapshot(policy).feed();
+        if (feed == null) throw new NoSuchElementException("Catalog is empty");
         return feed;
     }
 
-    private HomeFeed buildHome(MaturityPolicy policy) {
-        List<Content> visible = visible(policy);
-        if (visible.isEmpty()) throw new NoSuchElementException("Catalog is empty");
+    private HomeFeed buildHome(List<Content> visible) {
+        if (visible.isEmpty()) return null;
 
         Content hero = visible.stream().filter(Content::isFeatured).findFirst().orElse(visible.get(0));
         List<Rail> rails = new ArrayList<>();
@@ -180,9 +248,9 @@ public class CatalogService {
         Content show = cachedBySlug(policy, slug).orElseGet(() -> find(policy, slug));
         if (show instanceof Movie) return List.of();
         CachedEpisodes cached = episodeCache.get(show.getId());
-        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.seasons();
+        if (cached != null && cached.expiresAt().isAfter(Instant.now())) return cached.seasons();
         List<SeasonResponse> loaded = loadEpisodes(show.getId());
-        episodeCache.put(show.getId(), new CachedEpisodes(loaded, java.time.Instant.now().plus(EPISODES_TTL)));
+        episodeCache.put(show.getId(), new CachedEpisodes(loaded, Instant.now().plus(EPISODES_TTL)));
         return loaded;
     }
 
@@ -218,21 +286,94 @@ public class CatalogService {
     }
 
     private List<Content> visible(MaturityPolicy policy) {
-        CachedCatalog cached = catalogCache.get(policy);
-        if (cached != null && cached.expiresAt().isAfter(java.time.Instant.now())) return cached.items();
-        List<Content> items = loadVisible(policy);
-        catalogCache.put(policy, new CachedCatalog(items, java.time.Instant.now().plus(HOME_TTL)));
-        return items;
+        return snapshot(policy).items();
     }
 
-    private List<Content> loadVisible(MaturityPolicy policy) {
+    /** The current snapshot; only a missing (or very old) one is built on the request thread. */
+    private Snapshot snapshot(MaturityPolicy policy) {
+        Instant now = Instant.now();
+        lastRequested.put(policy, now);
+        Snapshot current = snapshots.get(policy);
+        if (current != null) {
+            Duration age = Duration.between(current.builtAt(), now);
+            if (age.compareTo(MAX_STALE) < 0) {
+                if (age.compareTo(HOME_TTL) > 0) scheduleRefresh(policy);
+                return current;
+            }
+        }
+        return rebuild(policy, current == null ? "on first request" : "on request (snapshot too old)");
+    }
+
+    private void scheduleRefresh(MaturityPolicy policy) {
+        if (!queued.add(policy)) return;
+        try {
+            refresher.execute(() -> {
+                try {
+                    rebuild(policy, "in background");
+                } catch (RuntimeException e) {
+                    log.warn("Catalog refresh for {} failed; serving the previous snapshot: {}", policy, e.toString());
+                } finally {
+                    queued.remove(policy);
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException shuttingDown) {
+            queued.remove(policy);
+        }
+    }
+
+    /** Runs on the refresher thread; must never throw, or the schedule would stop. */
+    private void refreshActive() {
+        Instant cutoff = Instant.now().minus(KEEP_WARM_FOR);
+        lastRequested.forEach((policy, at) -> {
+            if (at.isAfter(cutoff)) scheduleRefresh(policy);
+        });
+    }
+
+    /**
+     * Loads and builds a snapshot. If the catalog changed while building, the result is not cached
+     * (it may predate the change) and the build is retried once.
+     */
+    private Snapshot rebuild(MaturityPolicy policy, String reason) {
+        Snapshot built = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            long startedGeneration = generation.get();
+            built = build(policy, reason);
+            synchronized (snapshots) {
+                if (generation.get() == startedGeneration) {
+                    snapshots.put(policy, built);
+                    return built;
+                }
+            }
+        }
+        return built;
+    }
+
+    private Snapshot build(MaturityPolicy policy, String reason) {
+        boolean first = !snapshots.containsKey(policy);
+        long start = System.nanoTime();
         List<Long> ids = content.findActiveIdsNewestFirst(org.springframework.data.domain.PageRequest.of(0, CATALOG_SCAN_LIMIT));
-        if (ids.isEmpty()) return List.of();
-        Map<Long, Content> byId = content.findByIds(ids).stream().collect(Collectors.toMap(Content::getId, c -> c));
-        return ids.stream().map(byId::get)
-                .filter(java.util.Objects::nonNull)
-                .filter(c -> policy.allows(c.getContentRating()))
-                .toList();
+        long idsDone = System.nanoTime();
+        List<Content> items = List.of();
+        if (!ids.isEmpty()) {
+            // Duplicate-safe merge: the fetch join may return a title once per genre row.
+            Map<Long, Content> byId = content.findByIds(ids).stream()
+                    .collect(Collectors.toMap(Content::getId, c -> c, (kept, duplicate) -> kept));
+            items = ids.stream().map(byId::get)
+                    .filter(java.util.Objects::nonNull)
+                    .filter(c -> policy.allows(c.getContentRating()))
+                    .toList();
+        }
+        long titlesDone = System.nanoTime();
+        HomeFeed feed = buildHome(items);
+        long end = System.nanoTime();
+
+        long totalMs = (end - start) / 1_000_000;
+        String line = "Catalog snapshot for {} rebuilt {} in {} ms (ids {} ms, titles+genres {} ms, rails {} ms, {} titles)";
+        Object[] args = {policy, reason, totalMs, (idsDone - start) / 1_000_000, (titlesDone - idsDone) / 1_000_000,
+                (end - titlesDone) / 1_000_000, items.size()};
+        if (first || totalMs >= SLOW_REBUILD_MS) log.info(line, args);
+        else log.debug(line, args);
+        return new Snapshot(items, feed, Instant.now());
     }
 
     private static List<Content> popularity(List<Content> items) {
